@@ -88,13 +88,13 @@ Control motor position by publishing to /target_position topic:
 - Move to 90 degrees
 
 ```bash
-ros2 topic pub /target_position std_msgs/msg/Float32 "data: 90.0" --once
+ros2 topic pub /target_position sensor_msgs/msg/JointState "position: 90.0 100.0 20.0" --once
 ```
 
 - Move to 180 degrees
 
 ```bash
-ros2 topic pub /target_position std_msgs/msg/Float32 "data: 180.0" --once
+ros2 topic pub /target_position sensor_msgs/msg/JointState "position: 90.0 100.0 20.0" --once
 ```
 
 ### 2. Velocity Control
@@ -118,19 +118,19 @@ ros2 topic pub /target_velocity std_msgs/msg/Float32 "data: -10.0" --once
 ### 1. Start Motor
 
 ```bash
-ros2 service call /start_erob std_srvs/srv/Trigger
+ros2 service call /start_erob erob_master/srv/ConfigureMotor "node_id: 1"
 ```
 
 ### 2. Stop Motor
 
 ```bash
-ros2 service call /stop_erob std_srvs/srv/Trigger
-```
+ros2 service call /stop_erob erob_master/srv/ConfigureMotor "node_id: 1"
+
 
 ### 3. Reset Motor
 
 ```bash
-ros2 service call /reset_erob std_srvs/srv/Trigger
+ros2 service call /reset_erob erob_master/srv/ConfigureMotor "node_id: 1"
 ```
 
 ## Setting Motor Mode
@@ -138,13 +138,13 @@ ros2 service call /reset_erob std_srvs/srv/Trigger
 - Set to position mode
 
 ```bash
-ros2 service call /set_erob_mode std_srvs/srv/SetBool "data: true"
+ros2 service call /set_erob_mode erob_master/srv/ConfigureMotor "operation_mode: PPM"
 ```
 
 - Set to velocity mode
 
 ```bash
-ros2 service call /set_erob_mode std_srvs/srv/SetBool "data: false"
+ros2 service call /set_erob_mode erob_master/srv/ConfigureMotor "operation_mode: PVM"
 ```
 
 ## Monitor Motor Status
@@ -179,10 +179,10 @@ ros2 topic echo /erob_velocity
 
 | Service Name | Service Type | Description |
 | ------------ | ------------ | ----------- |
-| /start_erob | std_srvs/srv/Trigger | Start motor |
-| /stop_erob | std_srvs/srv/Trigger | Stop motor |
-| /reset_erob | std_srvs/srv/Trigger | Reset motor |
-| /set_erob_mode | std_srvs/srv/SetBool | Set motor mode (true: position mode, false: velocity mode) |
+| /start_erob | erob_master/srv/ConfigureMotor | Start motor ("node_id: 1") |
+| /stop_erob | erob_master/srv/ConfigureMotor | Stop motor ("node_id: 1") |
+| /reset_erob | erob_master/srv/ConfigureMotor | Reset motor ("node_id: 1") |
+| /set_erob_mode | erob_master/srv/ConfigureMotor | Set motor mode ("PPM": position mode, "PVM": velocity mode) |
 
 ## Parameter List
 
