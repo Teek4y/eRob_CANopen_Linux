@@ -1,5 +1,5 @@
 options:
-  dcf_path: "@BUS_CONFIG_PATH@/eds"
+  dcf_path: "@BUS_CONFIG_PATH@/ZeroErrDriver.eds"
 
 master:
   node_id: 1
@@ -16,4 +16,79 @@ defaults:
 
 nodes:
   motor_1:
-    node_id: 2 
+    node_id: 1
+    operation_mode: PPM
+    TxPDO1:
+    TxPDO2:
+    TxPDO3:
+    TxPDO4:
+    RxPDO1:
+    RxPDO2:
+    RxPDO3:
+    RxPDO4:
+  motor_2:
+    node_id: 2
+    operation_mode: PPM
+    TxPDO1:
+    TxPDO2:
+    TxPDO3:
+    TxPDO4:
+    RxPDO1:
+    RxPDO2:
+    RxPDO3:
+    RxPDO4:
+  motor_3:
+    node_id: 3
+    operation_mode: PPM
+    TxPDO1:
+    TxPDO2:
+    TxPDO3:
+    TxPDO4:
+    RxPDO1:
+    RxPDO2:
+    RxPDO3:
+    RxPDO4:
+  motor_4:
+    node_id: 4
+    operation_mode: PPM
+    TxPDO1:
+    TxPDO2:
+    TxPDO3:
+    TxPDO4:
+    RxPDO1:
+    RxPDO2:
+    RxPDO3:
+    RxPDO4:
+  motor_5:
+    node_id: 5
+    operation_mode: PPM
+    TxPDO1:
+    TxPDO2:
+    TxPDO3:
+    TxPDO4:
+    RxPDO1:
+    RxPDO2:
+    RxPDO3:
+    RxPDO4:
+  motor_6:
+    node_id: 6
+    operation_mode: PPM
+    TxPDO1:
+    TxPDO2:
+    TxPDO3:
+    TxPDO4:
+    RxPDO1:
+    RxPDO2:
+    RxPDO3:
+    RxPDO4:
+  motor_7:
+    node_id: 7
+    operation_mode: PPM
+    TxPDO1:
+    TxPDO2:
+    TxPDO3:
+    TxPDO4:
+    RxPDO1:
+    RxPDO2:
+    RxPDO3:
+    RxPDO4:
