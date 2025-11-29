@@ -1,0 +1,7 @@
+int32 node_id       
+float64 max_speed    
+float64 max_position 
+string operation_mode  
+---
+bool success
+string message

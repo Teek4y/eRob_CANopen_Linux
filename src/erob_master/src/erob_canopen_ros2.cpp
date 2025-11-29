@@ -13,6 +13,8 @@
 #include <std_msgs/msg/float32.hpp>
 #include <std_srvs/srv/trigger.hpp>
 #include <std_srvs/srv/set_bool.hpp>
+#include <erob_master/srv/configure_motor.hpp>
+#include <sensor_msgs/msg/joint_state.hpp>
 
 // CANopen COB-ID基础值
 #define COB_NMT      0x000
@@ -111,28 +113,28 @@ public:
             std::bind(&CANopenROS2::receive_can_frames, this));
         
         // 初始化节点
-        initialize_node();
+        initialize_node(node_id_);
         
         // 配置PDO映射
-        configure_pdo();
+        configure_pdo(node_id_);
         
         // 等待一段时间
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
         // 启动节点
-        start_node();
+        start_node(node_id_);
         
         // 设置立即生效
-        set_immediate_effect(true);
+        set_immediate_effect(node_id_, true);
         
         // 清除故障
-        clear_fault();
+        clear_fault(node_id_);
         
         // 使能电机
-        enable_motor();
+        enable_motor(node_id_);
         
         // 设置目标位置（例如，移动到90度）
-        go_to_position(0.0);
+        // go_to_position(0.0);
         
         // 创建状态定时器
         status_timer_ = this->create_wall_timer(
@@ -145,26 +147,28 @@ public:
         velocity_pub_ = this->create_publisher<std_msgs::msg::Float32>("erob_velocity", 10);
         
         // 创建订阅器
-        position_sub_ = this->create_subscription<std_msgs::msg::Float32>(
+        // position_sub_ = this->create_subscription<std_msgs::msg::Float32>(
+        //     "target_position", 10, std::bind(&CANopenROS2::position_callback, this, std::placeholders::_1));
+        position_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
             "target_position", 10, std::bind(&CANopenROS2::position_callback, this, std::placeholders::_1));
-        velocity_sub_ = this->create_subscription<std_msgs::msg::Float32>(
+        velocity_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
             "target_velocity", 10, std::bind(&CANopenROS2::velocity_callback, this, std::placeholders::_1));
         
         // 创建服务
-        start_service_ = this->create_service<std_srvs::srv::Trigger>(
+        start_service_ = this->create_service<erob_master::srv::ConfigureMotor>(
             "start_erob", std::bind(&CANopenROS2::handle_start, this, std::placeholders::_1, std::placeholders::_2));
-        stop_service_ = this->create_service<std_srvs::srv::Trigger>(
+        stop_service_ = this->create_service<erob_master::srv::ConfigureMotor>(
             "stop_erob", std::bind(&CANopenROS2::handle_stop, this, std::placeholders::_1, std::placeholders::_2));
-        reset_service_ = this->create_service<std_srvs::srv::Trigger>(
+        reset_service_ = this->create_service<erob_master::srv::ConfigureMotor>(
             "reset_erob", std::bind(&CANopenROS2::handle_reset, this, std::placeholders::_1, std::placeholders::_2));
-        set_mode_service_ = this->create_service<std_srvs::srv::SetBool>(
+        set_mode_service_ = this->create_service<erob_master::srv::ConfigureMotor>(
             "set_erob_mode", std::bind(&CANopenROS2::handle_set_mode, this, std::placeholders::_1, std::placeholders::_2));
     }
     
     ~CANopenROS2()
     {
         // 停止电机
-        stop_motor();
+        stop_motor(node_id_);
         
         // 关闭CAN套接字
         if (can_socket_ >= 0)
@@ -229,27 +233,27 @@ private:
         RCLCPP_INFO(this->get_logger(), "CAN套接字初始化成功");
     }
     
-    void initialize_node()
+    void initialize_node(int node_id)
     {
         // 发送NMT停止命令
-        send_nmt_command(node_id_, NMT_STOP_REMOTE_NODE);
+        send_nmt_command(node_id, NMT_STOP_REMOTE_NODE);
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
         // 发送NMT重置命令
-        send_nmt_command(node_id_, NMT_RESET_NODE);
+        send_nmt_command(node_id, NMT_RESET_NODE);
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
         
         // 先使能电机，再设置操作模式
         // 关闭（Shutdown）
-        write_sdo(node_id_, OD_CONTROL_WORD, 0x00, CONTROL_SHUTDOWN, 2);
+        write_sdo(node_id, OD_CONTROL_WORD, 0x00, CONTROL_SHUTDOWN, 2);
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
         // 准备开启（Switch on）
-        write_sdo(node_id_, OD_CONTROL_WORD, 0x00, CONTROL_SWITCH_ON, 2);
+        write_sdo(node_id, OD_CONTROL_WORD, 0x00, CONTROL_SWITCH_ON, 2);
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
         // 使能操作（Enable operation）
-        write_sdo(node_id_, OD_CONTROL_WORD, 0x00, CONTROL_ENABLE_OPERATION, 2);
+        write_sdo(node_id, OD_CONTROL_WORD, 0x00, CONTROL_ENABLE_OPERATION, 2);
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
         // 读取状态字，确认电机已使能
@@ -257,7 +261,7 @@ private:
         RCLCPP_INFO(this->get_logger(), "使能后状态字: 0x%04X", status_word);
         
         // 现在尝试设置操作模式
-        write_sdo(node_id_, OD_OPERATION_MODE, 0x00, MODE_PROFILE_POSITION, 1);
+        write_sdo(node_id, OD_OPERATION_MODE, 0x00, MODE_PROFILE_POSITION, 1);
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
         
         // 验证操作模式
@@ -295,20 +299,20 @@ private:
         }
         
         // 设置轮廓速度
-        set_profile_velocity(5);
+        set_profile_velocity(node_id,5);
         
         // 设置轮廓加速度
-        set_profile_acceleration(5);
+        set_profile_acceleration(node_id, 5);
         
         // 设置轮廓减速度
-        set_profile_deceleration(5);
+        set_profile_deceleration(node_id,5);
         
         // 禁用同步生成器
-        write_sdo(node_id_, OD_SYNC_MANAGER, 0x00, 0, 4);
+        write_sdo(node_id, OD_SYNC_MANAGER, 0x00, 0, 4);
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
         // 设置通信周期为1000微秒
-        write_sdo(node_id_, OD_SYNC_MANAGER, 0x00, 1000, 4);
+        write_sdo(node_id, OD_SYNC_MANAGER, 0x00, 1000, 4);
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
         RCLCPP_INFO(this->get_logger(), "节点初始化完成");
@@ -393,12 +397,12 @@ private:
         RCLCPP_INFO(this->get_logger(), "PDO配置完成");
     }
     
-    void start_node()
+    void start_node(int node_id)
     {
         RCLCPP_INFO(this->get_logger(), "启动节点...");
         
         // 发送NMT启动命令
-        send_nmt_command(node_id_, NMT_START_REMOTE_NODE);
+        send_nmt_command(node_id, NMT_START_REMOTE_NODE);
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
         // 获取实际位置
@@ -412,7 +416,7 @@ private:
         RCLCPP_INFO(this->get_logger(), "节点启动完成");
     }
     
-    void set_immediate_effect(bool immediate)
+    void set_immediate_effect(int node_id, bool immediate)
     {
         RCLCPP_INFO(this->get_logger(), "设置%s效果", immediate ? "立即" : "非立即");
         
@@ -429,27 +433,27 @@ private:
         }
         
         // 写入新的控制字
-        write_sdo(node_id_, OD_CONTROL_WORD, 0x00, controlword, 2);
+        write_sdo(node_id, OD_CONTROL_WORD, 0x00, controlword, 2);
         
         RCLCPP_INFO(this->get_logger(), "控制字已更新为: 0x%04X", controlword);
     }
     
-    void clear_fault()
+    void clear_fault(int node_id)
     {
         RCLCPP_INFO(this->get_logger(), "清除故障...");
         
         // 发送故障复位命令
-        set_control_word(CONTROL_FAULT_RESET);
+        set_control_word(node_id, CONTROL_FAULT_RESET);
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
         // 进入就绪状态
-        set_control_word(CONTROL_SHUTDOWN);
+        set_control_word(node_id, CONTROL_SHUTDOWN);
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
         RCLCPP_INFO(this->get_logger(), "故障已清除");
     }
     
-    void enable_motor()
+    void enable_motor(int node_id)
     {
         RCLCPP_INFO(this->get_logger(), "使能电机...");
         
@@ -459,15 +463,15 @@ private:
         
         // 先使用SDO设置控制字
         // 关闭（Shutdown）
-        write_sdo(node_id_, OD_CONTROL_WORD, 0x00, CONTROL_SHUTDOWN, 2);
+        write_sdo(node_id, OD_CONTROL_WORD, 0x00, CONTROL_SHUTDOWN, 2);
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
         // 准备开启（Switch on）
-        write_sdo(node_id_, OD_CONTROL_WORD, 0x00, CONTROL_SWITCH_ON, 2);
+        write_sdo(node_id, OD_CONTROL_WORD, 0x00, CONTROL_SWITCH_ON, 2);
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
         // 使能操作（Enable operation）
-        write_sdo(node_id_, OD_CONTROL_WORD, 0x00, CONTROL_ENABLE_OPERATION, 2);
+        write_sdo(node_id, OD_CONTROL_WORD, 0x00, CONTROL_ENABLE_OPERATION, 2);
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
         // 再次读取状态字，确认电机已使能
@@ -475,39 +479,39 @@ private:
         RCLCPP_INFO(this->get_logger(), "使能后状态字: 0x%04X", status_word);
         
         // 然后使用PDO发送控制字
-        set_control_word(CONTROL_SHUTDOWN);  // 关机
+        set_control_word(node_id, CONTROL_SHUTDOWN);  // 关机
         send_sync_frame();
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
-        set_control_word(CONTROL_SWITCH_ON);  // 开启
+        set_control_word(node_id, CONTROL_SWITCH_ON);  // 开启
         send_sync_frame();
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
-        set_control_word(CONTROL_ENABLE_OPERATION);  // 使能操作
+        set_control_word(node_id, CONTROL_ENABLE_OPERATION);  // 使能操作
         send_sync_frame();
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
         RCLCPP_INFO(this->get_logger(), "电机已使能");
     }
     
-    void stop_motor()
+    void stop_motor(int node_id)
     {
         RCLCPP_INFO(this->get_logger(), "停止电机...");
         
         // 设置目标速度为0
-        set_target_velocity(0);
+        set_target_velocity(node_id, 0);
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
         // 禁用操作
-        set_control_word(CONTROL_SWITCH_ON);
+        set_control_word(node_id, CONTROL_SWITCH_ON);
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
         // 关闭电机
-        set_control_word(CONTROL_SHUTDOWN);
+        set_control_word(node_id, CONTROL_SHUTDOWN);
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
         // 禁用电压
-        set_control_word(CONTROL_DISABLE_VOLTAGE);
+        set_control_word(node_id, CONTROL_DISABLE_VOLTAGE);
         
         RCLCPP_INFO(this->get_logger(), "电机已停止");
     }
@@ -836,7 +840,7 @@ private:
         return 0;  // 这里简化处理，实际应该返回读取到的值
     }
     
-    void receive_can_frames(int node_id_desired)
+    void receive_can_frames()
     {
         struct can_frame frame;
         ssize_t nbytes = read(can_socket_, &frame, sizeof(struct can_frame));
@@ -854,7 +858,7 @@ private:
         uint32_t cob_id = frame.can_id & 0x780;  // 提取功能码
         uint8_t node_id = frame.can_id & 0x7F;  // 提取节点ID
         
-        if (node_id != node_id_desired)
+        if (node_id != node_id_)
         {
             return;  // 不是我们关心的节点
         }
@@ -964,45 +968,55 @@ private:
     }
     
     // 回调函数：处理目标位置
-    void position_callback(const std_msgs::msg::Float32::SharedPtr msg)
+    void position_callback(const sensor_msgs::msg::JointState::SharedPtr msg)
     {
-        float angle = msg->data;
-        RCLCPP_INFO(this->get_logger(), "收到目标位置: %.2f°", angle);
+        int node_id = 0;
+        for (auto i : msg->position){
+            // float angle = msg->position[node_id];
+            RCLCPP_INFO(this->get_logger(), "收到目标位置: %.2f°", i);
         
-        // 添加更多调试信息
-        RCLCPP_INFO(this->get_logger(), "当前CAN套接字: %d", can_socket_);
-        RCLCPP_INFO(this->get_logger(), "当前节点ID: %d", node_id_);
-        
-        // 读取当前状态字
-        int32_t status_word = read_sdo(OD_STATUS_WORD, 0x00);
-        RCLCPP_INFO(this->get_logger(), "当前状态字: 0x%04X", status_word);
-        
-        // 读取当前操作模式
-        int32_t mode = read_sdo(OD_OPERATION_MODE_DISPLAY, 0x00);
-        RCLCPP_INFO(this->get_logger(), "当前操作模式: %d", mode);
-        
-        go_to_position(node_id_, angle);
+            // 添加更多调试信息
+            RCLCPP_INFO(this->get_logger(), "当前CAN套接字: %d", can_socket_);
+            RCLCPP_INFO(this->get_logger(), "当前节点ID: %d", node_id);
+            
+            // 读取当前状态字
+            int32_t status_word = read_sdo(node_id, OD_STATUS_WORD, 0x00);
+            RCLCPP_INFO(this->get_logger(), "当前状态字: 0x%04X", status_word);
+            
+            // 读取当前操作模式
+            int32_t mode = read_sdo(node_id, OD_OPERATION_MODE_DISPLAY, 0x00);
+            RCLCPP_INFO(this->get_logger(), "当前操作模式: %d", mode);
+            // go_to_position(node_id, angle);
+            go_to_position(node_id, i);
+            node_id++;
+        }
     }
     
     // 回调函数：处理目标速度
-    void velocity_callback(const std_msgs::msg::Float32::SharedPtr msg)
-    {
-        float velocity = msg->data;
-        RCLCPP_INFO(this->get_logger(), "收到目标速度: %.2f°/s", velocity);
+    void velocity_callback(const sensor_msgs::msg::JointState::SharedPtr msg)
+    {   
+        int node_id = 0;
+        for(auto i : msg->velocity){
+            // float velocity = msg->velocity[node_id];
+            RCLCPP_INFO(this->get_logger(), "收到目标速度: %.2f°/s", i);
+            
+            // 尝试使用PDO设置速度
+            set_velocity_pdo(node_id,i);
+            node_id++;
+        }
         
-        // 尝试使用PDO设置速度
-        set_velocity_pdo(velocity);
     }
     
     // 服务回调函数：启动
-    void handle_start(const std::shared_ptr<std_srvs::srv::Trigger::Request>,
-                     std::shared_ptr<std_srvs::srv::Trigger::Response> response)
+    void handle_start(const std::shared_ptr<erob_master::srv::ConfigureMotor::Request> request,
+                     std::shared_ptr<erob_master::srv::ConfigureMotor::Response> response)
     {
-        RCLCPP_INFO(this->get_logger(), "收到启动请求");
         
+        RCLCPP_INFO(this->get_logger(), "收到启动请求");
+        int node_id = request->node_id;
         try
         {
-            initialize_motor();
+            initialize_motor(node_id);
             response->success = true;
             response->message = "EROB电机已启动";
         }
@@ -1014,14 +1028,14 @@ private:
     }
     
     // 服务回调函数：停止
-    void handle_stop(const std::shared_ptr<std_srvs::srv::Trigger::Request>,
-                    std::shared_ptr<std_srvs::srv::Trigger::Response> response)
+    void handle_stop(const std::shared_ptr<erob_master::srv::ConfigureMotor::Request> request,
+                    std::shared_ptr<erob_master::srv::ConfigureMotor::Response> response)
     {
         RCLCPP_INFO(this->get_logger(), "收到停止请求");
-        
+        int node_id = request->node_id;
         try
         {
-            stop_motor();
+            stop_motor(node_id);
             response->success = true;
             response->message = "EROB电机已停止";
         }
@@ -1033,19 +1047,19 @@ private:
     }
     
     // 服务回调函数：重置
-    void handle_reset(const std::shared_ptr<std_srvs::srv::Trigger::Request>,
-                     std::shared_ptr<std_srvs::srv::Trigger::Response> response)
+    void handle_reset(const std::shared_ptr<erob_master::srv::ConfigureMotor::Request> request,
+                     std::shared_ptr<erob_master::srv::ConfigureMotor::Response> response)
     {
         RCLCPP_INFO(this->get_logger(), "收到重置请求");
-        
+        int node_id = request->node_id;
         try
         {
             // 发送NMT重置命令
-            send_nmt_command(node_id_, NMT_RESET_NODE);
+            send_nmt_command(node_id, NMT_RESET_NODE);
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
             
             // 重新初始化电机
-            initialize_motor();
+            initialize_motor(node_id);
             
             response->success = true;
             response->message = "EROB电机已重置";
@@ -1058,11 +1072,12 @@ private:
     }
     
     // 服务回调函数：设置模式
-    void handle_set_mode(int node_id, const std::shared_ptr<std_srvs::srv::SetBool::Request> request,
-                        std::shared_ptr<std_srvs::srv::SetBool::Response> response)
-    {
-        RCLCPP_INFO(this->get_logger(), "收到设置模式请求: %s", request->data ? "位置模式" : "速度模式");
+    void handle_set_mode(const std::shared_ptr<erob_master::srv::ConfigureMotor::Request> request,
+                        std::shared_ptr<erob_master::srv::ConfigureMotor::Response> response)
+    {   
+        // RCLCPP_INFO(this->get_logger(), "收到设置模式请求: %s", request->operation_mode ? "位置模式" : "速度模式");
         
+        int node_id = request->node_id;
         try
         {
             // 读取当前操作模式
@@ -1070,20 +1085,17 @@ private:
             RCLCPP_INFO(this->get_logger(), "当前操作模式: %d", mode);
             
             // 无论当前模式如何，都设置相应的参数
-            if (request->data)
-            {
+            if(request->operation_mode == "PPM"){
                 // 设置位置模式参数
                 set_profile_parameters(node_id, 5, 5, 5);
                 
                 // 设置目标位置为当前位置，防止电机立即运动
                 int32_t current_position = read_sdo(node_id, OD_ACTUAL_POSITION, 0x00);
-                write_sdo(node_id_, OD_TARGET_POSITION, 0x00, current_position, 4);
+                write_sdo(node_id, OD_TARGET_POSITION, 0x00, current_position, 4);
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 
                 response->message = "已设置位置模式参数";
-            }
-            else
-            {
+            }else if(request->operation_mode == "PVM"){
                 // 设置速度模式参数
                 set_profile_velocity(node_id, 5);  // 默认速度
                 
@@ -1092,6 +1104,9 @@ private:
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 
                 response->message = "已设置速度模式参数";
+            }
+            else{
+                throw std::runtime_error("未知的操作模式: " + request->operation_mode);
             }
             
             response->success = true;
@@ -1131,28 +1146,28 @@ private:
         return acceleration_pulse_per_sec2;
     }
     
-    void initialize_motor()
+    void initialize_motor(int node_id)
     {
         // 初始化节点
-        initialize_node();
+        initialize_node(node_id);
         
         // 配置PDO映射
-        configure_pdo();
+        configure_pdo(node_id);
         
         // 等待一段时间
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
         // 启动节点
-        start_node();
+        start_node(node_id);
         
         // 设置立即生效
-        set_immediate_effect(true);
+        set_immediate_effect(node_id, true);
         
         // 清除故障
-        clear_fault();
+        clear_fault(node_id);
         
         // 使能电机
-        enable_motor();
+        enable_motor(node_id);
         
         RCLCPP_INFO(this->get_logger(), "电机初始化完成");
     }
@@ -1192,7 +1207,7 @@ private:
         RCLCPP_INFO(this->get_logger(), "当前操作模式: %d", mode);
         
         // 设置轮廓速度参数（无论当前模式如何）
-        set_profile_velocity(static_cast<int32_t>(velocity_deg_per_sec));
+        set_profile_velocity(node_id, static_cast<int32_t>(velocity_deg_per_sec));
         
         // 转换为电机内部单位
         int32_t velocity_pulse = velocity_to_pulse(static_cast<int32_t>(velocity_deg_per_sec));
@@ -1241,17 +1256,21 @@ private:
     int can_socket_ = -1;
     uint16_t status_word_ = 0;
     int32_t position_ = 0;
+
+    sensor_msgs::msg::JointState joint_state_real;
+    sensor_msgs::msg::JointState joint_state_cmd;
+
     rclcpp::TimerBase::SharedPtr timer_;
     rclcpp::TimerBase::SharedPtr status_timer_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
     rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr position_pub_;
     rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr velocity_pub_;
-    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr position_sub_;
-    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr velocity_sub_;
-    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr start_service_;
-    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr stop_service_;
-    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr reset_service_;
-    rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr set_mode_service_;
+    rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr position_sub_;
+    rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr velocity_sub_;
+    rclcpp::Service<erob_master::srv::ConfigureMotor>::SharedPtr start_service_;
+    rclcpp::Service<erob_master::srv::ConfigureMotor>::SharedPtr stop_service_;
+    rclcpp::Service<erob_master::srv::ConfigureMotor>::SharedPtr reset_service_;
+    rclcpp::Service<erob_master::srv::ConfigureMotor>::SharedPtr set_mode_service_;
 };
 
 int main(int argc, char * argv[])
