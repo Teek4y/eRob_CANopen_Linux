@@ -715,12 +715,12 @@ private:
         send_sync_frame();
         
         // 先重置命令触发位（位4）
-        set_control_word(CONTROL_ENABLE_OPERATION);
+        set_control_word(node_id, CONTROL_ENABLE_OPERATION);
         send_sync_frame();
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
         // 设置命令触发位，创建上升沿
-        set_control_word(CONTROL_ENABLE_OPERATION | CONTROL_NEW_SET_POINT);
+        set_control_word(node_id, CONTROL_ENABLE_OPERATION | CONTROL_NEW_SET_POINT);
         send_sync_frame();
         
         RCLCPP_INFO(this->get_logger(), "位置命令已发送");
