@@ -17,6 +17,8 @@ find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
 
 # 包含目录
 include_directories(
@@ -24,9 +26,18 @@ include_directories(
 )
 
 
+set(srv_files
+  "srv/ConfigureMotor.srv"
+)
+rosidl_generate_interfaces(${PROJECT_NAME}
+  ${srv_files}
+  # 如果有其他 .msg 或 .action 文件也加在这里
+)
+
 # 添加erob_canoepn_ros2可执行文件
-add_executable(erob_canoepn_ros2 src/erob_canoepn_ros2.cpp)
-ament_target_dependencies(erob_canoepn_ros2 rclcpp std_msgs std_srvs geometry_msgs)
+add_executable(erob_canoepn_ros2 src/erob_canopen_ros2.cpp)
+rosidl_target_interfaces(erob_canoepn_ros2 ${PROJECT_NAME} "rosidl_typesupport_cpp")
+ament_target_dependencies(erob_canoepn_ros2 rclcpp std_msgs sensor_msgs std_srvs geometry_msgs)
 
 # 安装可执行文件
 install(TARGETS
@@ -47,7 +58,7 @@ install(DIRECTORY
 )
 
 # 导出依赖
-ament_export_dependencies(rclcpp std_msgs std_srvs geometry_msgs)
+ament_export_dependencies(rclcpp std_msgs sensor_msgs std_srvs geometry_msgs)
 
 # 必须的函数调用
 ament_package() 

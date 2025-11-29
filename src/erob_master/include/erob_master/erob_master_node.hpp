@@ -132,16 +132,16 @@ private:
     float rad_to_deg(float radian);
     float deg_to_rad(float degree);
     // service callbacks
-    void handle_start(const std_srvs::srv::Trigger::Request::SharedPtr request,
-                      std_srvs::srv::Trigger::Response::SharedPtr response);
+    void handle_start(const erob_master::srv::ConfigureMotor::Request::SharedPtr request,
+                      erob_master::srv::ConfigureMotor::Response::SharedPtr response);
     void handle_exit(const std_srvs::srv::Trigger::Request::SharedPtr request,
                      std_srvs::srv::Trigger::Response::SharedPtr response);
-    void handle_stop(const std_srvs::srv::Trigger::Request::SharedPtr request,
-                     std_srvs::srv::Trigger::Response::SharedPtr response);
+    void handle_stop(const erob_master::srv::ConfigureMotor::Request::SharedPtr request,
+                     erob_master::srv::ConfigureMotor::Response::SharedPtr response);
     void handle_recover(const std_srvs::srv::Trigger::Request::SharedPtr request,
                         std_srvs::srv::Trigger::Response::SharedPtr response);
-    void handle_reset(const std_srvs::srv::Trigger::Request::SharedPtr request,
-                      std_srvs::srv::Trigger::Response::SharedPtr response);
+    void handle_reset(const erob_master::srv::ConfigureMotor::Request::SharedPtr request,
+                      erob_master::srv::ConfigureMotor::Response::SharedPtr response);
     // subscriber callback
     void target_velocity_callback(const std_msgs::msg::Float32MultiArray::SharedPtr msg);
     void target_position_callback(const std_msgs::msg::Float32MultiArray::SharedPtr msg);
