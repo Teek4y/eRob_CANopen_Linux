@@ -1082,13 +1082,13 @@ private:
                 {
                     uint32_t rated_current = frame.data[4] | (frame.data[5] << 8) | (frame.data[6] << 16) | (frame.data[7] << 24);
                     motor_config_[node_id-1].rated_current = rated_current;
-                    RCLCPP::INFO(this->get_logger(), "电机id: %d 额定电流: %d A", node_id, rated_current*0.001);
+                    RCLCPP_INFO(this->get_logger(), "电机id: %d 额定电流: %.2f A", node_id, rated_current*0.001);
                 }
                 else if (index == OD_RATED_TORQUE && subindex == 0x00)  // 额定力矩
                 {
                     uint32_t rated_torque = frame.data[4] | (frame.data[5] << 8) | (frame.data[6] << 16) | (frame.data[7] << 24);
                     motor_config_[node_id-1].rated_torque = rated_torque;
-                    RCLCPP::INFO(this->get_logger(), "电机id: %d 额定力矩: %d Nm", node_id, rated_torque*0.001);
+                    RCLCPP_INFO(this->get_logger(), "电机id: %d 额定力矩: %.2f Nm", node_id, rated_torque*0.001);
                 }
             }break;
             case COB_TPDO1:{
@@ -1456,7 +1456,7 @@ private:
     void initialize_motor(int node_id)
     {
         // 初始化节点
-        initialize_node(node_id);
+        initialize_node(motor_config_[node_id-1]);
         
         // 配置PDO映射
         configure_pdo(node_id);
@@ -1464,7 +1464,7 @@ private:
         // 获取额定电流和额定力矩
         get_rated_current(node_id);
         get_rated_torque(node_id);
-        
+
         // 等待一段时间
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
@@ -1563,12 +1563,12 @@ private:
     }
     
     void get_rated_current(int node_id){
-        int32_t rated_current_hex = read_sdo(node_id, OD_RATED_CURRENT, 0x00);
+        read_sdo(node_id, OD_RATED_CURRENT, 0x00);
         // motor_config_[node_id-1].rated_current = rated_current_hex;
         // RCLCPP_INFO(this->get_logger(), "额定电流: %.2f A", rated_current_hex * 0.001);
     }
     void get_rated_torque(int node_id){
-        int32_t rated_torque_hex = read_sdo(node_id, OD_RATED_TORQUE, 0x00);
+        read_sdo(node_id, OD_RATED_TORQUE, 0x00);
         // motor_config_[node_id-1].rated_torque = rated_torque_hex;
         // RCLCPP_INFO(this->get_logger(), "额定力矩: %.2f Nm", rated_torque_hex * 0.001);
     }
