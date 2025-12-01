@@ -140,27 +140,35 @@ public:
             std::bind(&CANopenROS2::receive_can_frames, this));
         
         
-        for (int i = 0; i<= NUM_MOTORS; i++){
+        for (int i = 0; i< NUM_MOTORS; i++){
             motor_config_[i].node_id = i+1;
             motor_config_[i].operation_mode = MODE_PROFILE_POSITION;
             motor_config_[i].status_word = 0;
             motor_config_[i].status_enabled = 0;
             motor_config_[i].status_fault = 0;
             motor_config_[i].velocity = 5.72;
-            motor_config_[i].acceleration_rpm2 = 0.51;
-            motor_config_[i].deceleration_rpm2 = 0.51;
+            motor_config_[i].acceleration_rpm2 = 1;//0.51
+            motor_config_[i].deceleration_rpm2 = 1;//0.51
             motor_config_[i].max_torque = 2.0;
         }
-        for (int i = 0; i<= NUM_MOTORS; i++){
 
-            RCLCPP_INFO(this->get_logger(), "初始化Simple eRob Control，CAN接口=%s，节点ID=%d", 
-                    can_interface_.c_str(), i+1);
+        RCLCPP_INFO(this->get_logger(), "初始化Simple eRob Control，CAN接口=%s", 
+                can_interface_.c_str());
+
+
+        for (int i = 0; i< NUM_MOTORS; i++){
+
+            // RCLCPP_INFO(this->get_logger(), "初始化Simple eRob Control，CAN接口=%s，节点ID=%d", 
+            //         can_interface_.c_str(), i+1);
             // 初始化节点
             initialize_motor(motor_config_[i].node_id);
         }
         
         // 设置目标位置（例如，移动到90度）
         // go_to_position(0.0);
+
+        set_position_pdo(4, 0);
+        set_position_pdo(6, 0);
         
         // 创建状态定时器
         status_timer_ = this->create_wall_timer(
@@ -194,7 +202,7 @@ public:
     ~CANopenROS2()
     {
         // 停止电机
-        for (int i = 0; i <= NUM_MOTORS; i++) {
+        for (int i = 0; i < NUM_MOTORS; i++) {
             stop_motor(motor_config_[i].node_id);
         }
         
@@ -287,7 +295,7 @@ private:
         
         // 读取状态字，确认电机已使能
         int32_t status_word = read_sdo(node_id, OD_STATUS_WORD, 0x00);
-        RCLCPP_INFO(this->get_logger(), "使能后状态字: 0x%04X", status_word);
+        // RCLCPP_INFO(this->get_logger(), "使能后状态字: 0x%04X", status_word);
         
         // 现在尝试设置操作模式
         write_sdo(node_id, OD_OPERATION_MODE, 0x00, motor_config.operation_mode, 1);
@@ -295,7 +303,7 @@ private:
         
         // 验证操作模式
         int32_t mode = read_sdo(node_id, OD_OPERATION_MODE_DISPLAY, 0x00);
-        RCLCPP_INFO(this->get_logger(), "当前操作模式: %d", mode);
+        // RCLCPP_INFO(this->get_logger(), "当前操作模式: %d", mode);
         
         // 如果操作模式仍然不是位置模式，尝试使用PDO设置
         if (mode != motor_config.operation_mode)
@@ -324,7 +332,7 @@ private:
             
             // 再次验证操作模式
             mode = read_sdo(node_id, OD_OPERATION_MODE_DISPLAY, 0x00);
-            RCLCPP_INFO(this->get_logger(), "PDO设置后操作模式: %d", mode);
+            // RCLCPP_INFO(this->get_logger(), "PDO设置后操作模式: %d", mode);
         }
         
         // 设置轮廓速度
@@ -353,11 +361,11 @@ private:
         
         // 进入预操作状态
         send_nmt_command(node_id, NMT_STOP_REMOTE_NODE);
-        RCLCPP_INFO(this->get_logger(), "已进入预操作状态");
+        // RCLCPP_INFO(this->get_logger(), "已进入预操作状态");
         
         // 配置TxPDO1
         {
-        RCLCPP_INFO(this->get_logger(), "开始配置TxPDO1");
+        // RCLCPP_INFO(this->get_logger(), "开始配置TxPDO1");
         
         // 1. 禁用TxPDO1
         uint32_t txpdo1_cob_id = COB_TPDO1 + node_id;
@@ -397,7 +405,7 @@ private:
 
         // 配置RxPDO1 用于PPM/CSP
         {
-        RCLCPP_INFO(this->get_logger(), "开始配置RxPDO1");
+        // RCLCPP_INFO(this->get_logger(), "开始配置RxPDO1");
         
         // 1. 禁用RxPDO1
         uint32_t rxpdo1_cob_id = COB_RPDO1 + node_id;
@@ -433,7 +441,7 @@ private:
 
         // 配置RxPDO2 用于PVM/CSV
         {
-        RCLCPP_INFO(this->get_logger(), "开始配置RxPDO2");
+        // RCLCPP_INFO(this->get_logger(), "开始配置RxPDO2");
         
         // 1. 禁用RxPDO2
         uint32_t rxpdo2_cob_id = COB_RPDO2 + node_id;
@@ -469,7 +477,7 @@ private:
 
         // 配置RxPDO3 用于PTM/CST
         {
-        RCLCPP_INFO(this->get_logger(), "开始配置RxPDO3");
+        // RCLCPP_INFO(this->get_logger(), "开始配置RxPDO3");
         
         // 1. 禁用RxPDO3
         uint32_t rxpdo3_cob_id = COB_RPDO3 + node_id;
@@ -508,7 +516,7 @@ private:
     
     void start_node(int node_id)
     {
-        RCLCPP_INFO(this->get_logger(), "启动节点...");
+        // RCLCPP_INFO(this->get_logger(), "启动节点...");
         
         // 发送NMT启动命令
         send_nmt_command(node_id, NMT_START_REMOTE_NODE);
@@ -517,12 +525,12 @@ private:
         // 获取实际位置
         int32_t actual_position = read_sdo(node_id, OD_ACTUAL_POSITION, 0x00);
         float actual_angle = position_to_angle(actual_position);
-        RCLCPP_INFO(this->get_logger(), "实际位置: %.2f°", actual_angle);
+        // RCLCPP_INFO(this->get_logger(), "实际位置: %.2f°", actual_angle);
         
         // 发送同步帧
         send_sync_frame();
         
-        RCLCPP_INFO(this->get_logger(), "节点启动完成");
+        // RCLCPP_INFO(this->get_logger(), "节点启动完成");
     }
     
     void set_immediate_effect(int node_id, bool immediate)
@@ -1003,7 +1011,7 @@ private:
         
         // 等待响应
         // std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        
+        // receive_can_frames();
         // 注意：这里我们没有实际等待和处理响应
         // 在实际应用中，应该在receive_can_frames函数中处理SDO响应
         // 并返回读取到的值
@@ -1097,12 +1105,13 @@ private:
                 {
                     uint16_t status_word = frame.data[0] | (frame.data[1] << 8);
                     int32_t position = frame.data[2] | (frame.data[3] << 8) | (frame.data[4] << 16) | (frame.data[5] << 24);
-
+                    int16_t current = frame.data[6] | (frame.data[7] << 8);
                     status_word_ = status_word;
                     position_ = position;
 
                     float angle = position_to_angle(position);
                     motor_config_[node_id-1].actual_position = angle;
+                    motor_config_[node_id-1].actual_current = current * motor_config_[node_id-1].rated_current * 0.001; // 转换为安培
                     // // 发布位置
                     // auto pos_msg = std_msgs::msg::Float32();
                     // pos_msg.data = angle;
@@ -1224,14 +1233,15 @@ private:
         
         status_msg.data = status_str;
         status_pub_->publish(status_msg);
-        
+
+        sensor_msgs::msg::JointState joint_state_real;
         // 发布位置
         // auto pos_msg = std_msgs::msg::Float32();
         // pos_msg.data = position_to_angle(position_);
         // position_pub_->publish(pos_msg);
-        for (size_t i = 0; i <= NUM_MOTORS; ++i) {
+        for (size_t i = 0; i < NUM_MOTORS; ++i) {
             joint_state_real.position.push_back(motor_config_[i].actual_position);
-            joint_state_real.velocity.push_back(motor_config_[i].actual_velocity);
+            // joint_state_real.velocity.push_back(motor_config_[i].actual_velocity);
             // joint_state_real.effort.push_back(pulse_to_effort(motor_config_[i].actual_effort));
         }
         position_pub_->publish(joint_state_real);
@@ -1461,15 +1471,17 @@ private:
         // 配置PDO映射
         configure_pdo(node_id);
         
-        // 获取额定电流和额定力矩
-        get_rated_current(node_id);
-        get_rated_torque(node_id);
+
 
         // 等待一段时间
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
         // 启动节点
         start_node(node_id);
+
+        // 获取额定电流和额定力矩
+        get_rated_current(node_id);
+        get_rated_torque(node_id);
         
         // 设置立即生效
         set_immediate_effect(node_id, true);
@@ -1581,7 +1593,7 @@ private:
 
     
 
-    sensor_msgs::msg::JointState joint_state_real;
+
     sensor_msgs::msg::JointState joint_state_cmd;
 
     rclcpp::TimerBase::SharedPtr timer_;
