@@ -1240,7 +1240,7 @@ private:
     // 回调函数：处理目标位置
     void position_callback(const sensor_msgs::msg::JointState::SharedPtr msg)
     {
-        int node_id = 0;
+        int node_id = 1;
         for (auto i : msg->position){
             // float angle = msg->position[node_id];
             RCLCPP_INFO(this->get_logger(), "收到目标位置: %.2f°", i);
@@ -1265,7 +1265,7 @@ private:
     // 回调函数：处理目标速度
     void velocity_callback(const sensor_msgs::msg::JointState::SharedPtr msg)
     {   
-        int node_id = 0;
+        int node_id = 1;
         for(auto i : msg->velocity){
             // float velocity = msg->velocity[node_id];
             RCLCPP_INFO(this->get_logger(), "收到目标速度: %.2f°/s", i);
