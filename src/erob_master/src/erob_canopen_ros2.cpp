@@ -36,6 +36,7 @@
 // NMT命令
 #define NMT_START_REMOTE_NODE    0x01
 #define NMT_STOP_REMOTE_NODE     0x02
+#define NMT_SWITCH_TO_PRE_OP     0x80
 #define NMT_RESET_NODE           0x81
 #define NMT_RESET_COMM           0x82
 
@@ -46,6 +47,8 @@
 #define CONTROL_DISABLE_VOLTAGE     0x00
 #define CONTROL_FAULT_RESET         0x80
 #define CONTROL_NEW_SET_POINT       0x10  // Bit 4 for new set point
+#define CONTROL_NEW_SET_POINT_IMMEDIATE_1   0x30
+#define CONTROL_NEW_SET_POINT_IMMEDIATE_2   0x20
 
 // CiA402操作模式
 #define MODE_PROFILE_POSITION       1
@@ -85,7 +88,8 @@
 #define OD_RATED_CURRENT            0x6075
 #define OD_ACTUAL_CURRENT           0x6078
 
-#define OD_SYNC_MANAGER             0x1006
+#define OD_SYNC_MESSAGE             0x1005
+#define OD_SYNC_PERIOD             0x1006
 
 // 编码器分辨率
 #define ENCODER_RESOLUTION       524288
@@ -102,6 +106,7 @@ struct MotorConfig{
     float actual_position;
     float actual_velocity;
     float actual_torque;
+    //actual_torque = torque_constant * vel_ratio * efficiency * actual_current
     float actual_current;
 
     uint32_t rated_current;
@@ -135,7 +140,7 @@ public:
         }
         
         // 创建定时器，用于接收CAN帧
-        timer_ = this->create_wall_timer(
+        receive_timer_ = this->create_wall_timer(
             std::chrono::milliseconds(10),
             std::bind(&CANopenROS2::receive_can_frames, this));
         
@@ -163,16 +168,22 @@ public:
             // 初始化节点
             initialize_motor(motor_config_[i].node_id);
         }
-        
         // 设置目标位置（例如，移动到90度）
         // go_to_position(0.0);
+        // go_to_position(4,180);
+        // go_to_position(6,0);
 
-        set_position_pdo(4, 0);
+        set_position_pdo(4, 180);
         set_position_pdo(6, 0);
+        // send_sync_frame();
+        
+        sync_timer_ = this->create_wall_timer(
+            std::chrono::milliseconds(10),
+            std::bind(&CANopenROS2::send_sync_frame, this));
         
         // 创建状态定时器
         status_timer_ = this->create_wall_timer(
-            std::chrono::milliseconds(1000),
+            std::chrono::milliseconds(100),
             std::bind(&CANopenROS2::publish_status, this));
         
         // 创建发布器
@@ -294,47 +305,48 @@ private:
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
         // 读取状态字，确认电机已使能
-        int32_t status_word = read_sdo(node_id, OD_STATUS_WORD, 0x00);
+        // int32_t status_word = read_sdo(node_id, OD_STATUS_WORD, 0x00);
         // RCLCPP_INFO(this->get_logger(), "使能后状态字: 0x%04X", status_word);
         
         // 现在尝试设置操作模式
         write_sdo(node_id, OD_OPERATION_MODE, 0x00, motor_config.operation_mode, 1);
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         
         // 验证操作模式
         int32_t mode = read_sdo(node_id, OD_OPERATION_MODE_DISPLAY, 0x00);
         // RCLCPP_INFO(this->get_logger(), "当前操作模式: %d", mode);
-        
+        /*
         // 如果操作模式仍然不是位置模式，尝试使用PDO设置
-        if (mode != motor_config.operation_mode)
-        {
-            RCLCPP_WARN(this->get_logger(), "使用SDO设置操作模式失败，尝试使用PDO");
+        // if (mode != motor_config.operation_mode)
+        // {
+        //     RCLCPP_WARN(this->get_logger(), "使用SDO设置操作模式失败，尝试使用PDO");
             
-            // 使用PDO设置操作模式
-            struct can_frame frame;
-            frame.can_id = COB_RPDO1 + node_id;
-            frame.can_dlc = 3;  // 控制字(2字节) + 操作模式(1字节)
-            frame.data[0] = CONTROL_ENABLE_OPERATION & 0xFF;  // 控制字低字节
-            frame.data[1] = (CONTROL_ENABLE_OPERATION >> 8) & 0xFF;  // 控制字高字节
-            frame.data[2] = motor_config.operation_mode;  // 操作模式
+        //     // 使用PDO设置操作模式
+        //     struct can_frame frame;
+        //     frame.can_id = COB_RPDO1 + node_id;
+        //     frame.can_dlc = 3;  // 控制字(2字节) + 操作模式(1字节)
+        //     frame.data[0] = CONTROL_ENABLE_OPERATION & 0xFF;  // 控制字低字节
+        //     frame.data[1] = (CONTROL_ENABLE_OPERATION >> 8) & 0xFF;  // 控制字高字节
+        //     frame.data[2] = motor_config.operation_mode;  // 操作模式
             
-            if (write(can_socket_, &frame, sizeof(struct can_frame)) != sizeof(struct can_frame))
-            {
-                RCLCPP_ERROR(this->get_logger(), "发送PDO操作模式失败");
-            }
-            else
-            {
-                RCLCPP_INFO(this->get_logger(), "PDO操作模式已发送");
-            }
+        //     if (write(can_socket_, &frame, sizeof(struct can_frame)) != sizeof(struct can_frame))
+        //     {
+        //         RCLCPP_ERROR(this->get_logger(), "发送PDO操作模式失败");
+        //     }
+        //     else
+        //     {
+        //         RCLCPP_INFO(this->get_logger(), "PDO操作模式已发送");
+        //     }
             
-            send_sync_frame();
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        //     send_sync_frame();
+        //     std::this_thread::sleep_for(std::chrono::milliseconds(200));
             
-            // 再次验证操作模式
-            mode = read_sdo(node_id, OD_OPERATION_MODE_DISPLAY, 0x00);
-            // RCLCPP_INFO(this->get_logger(), "PDO设置后操作模式: %d", mode);
-        }
-        
+        //     // 再次验证操作模式
+        //     mode = read_sdo(node_id, OD_OPERATION_MODE_DISPLAY, 0x00);
+        //     // RCLCPP_INFO(this->get_logger(), "PDO设置后操作模式: %d", mode);
+        // }
+        */
+
         // 设置轮廓速度
         set_profile_velocity(node_id, motor_config.velocity);
         
@@ -345,12 +357,12 @@ private:
         set_profile_deceleration(node_id, motor_config.deceleration_rpm2);
         
         // 禁用同步生成器
-        write_sdo(node_id, OD_SYNC_MANAGER, 0x00, 0, 4);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        write_sdo(node_id, OD_SYNC_MESSAGE, 0x00, 0x00000080, 4);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         
         // 设置通信周期为1000微秒
-        write_sdo(node_id, OD_SYNC_MANAGER, 0x00, 1000, 4);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        write_sdo(node_id, OD_SYNC_PERIOD, 0x00, 1000, 4);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         
         RCLCPP_INFO(this->get_logger(), "节点初始化完成");
     }
@@ -360,7 +372,7 @@ private:
         RCLCPP_INFO(this->get_logger(), "配置PDO映射...");
         
         // 进入预操作状态
-        send_nmt_command(node_id, NMT_STOP_REMOTE_NODE);
+        send_nmt_command(node_id, NMT_SWITCH_TO_PRE_OP);
         // RCLCPP_INFO(this->get_logger(), "已进入预操作状态");
         
         // 配置TxPDO1
@@ -370,37 +382,38 @@ private:
         // 1. 禁用TxPDO1
         uint32_t txpdo1_cob_id = COB_TPDO1 + node_id;
         write_sdo(node_id, 0x1800, 0x01, txpdo1_cob_id | 0x80000000, 4);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         
         // 2. 设置传输类型
         write_sdo(node_id, 0x1800, 0x02, 0x01, 1);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         
         // 3. 清除TxPDO1映射
         write_sdo(node_id, 0x1A00, 0x00, 0x00, 1);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
         
         // 4. 设置映射对象：状态字
         write_sdo(node_id, 0x1A00, 0x01, 0x60410010, 4);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         
         // 5.1 设置映射对象：实际位置
         write_sdo(node_id, 0x1A00, 0x02, 0x60640020, 4);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
         // 5.2 设置映射对象：实际电流
         write_sdo(node_id, 0x1A00, 0x03, 0x60780010, 4);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         
         // 6. 设置TxPDO1映射对象数量为3
         write_sdo(node_id, 0x1A00, 0x00, 0x03, 1);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
         // 7. 设置传输类型并启用TxPDO1
-        write_sdo(node_id, 0x1800, 0x02, 0xFF, 1);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // write_sdo(node_id, 0x1800, 0x02, 0xFF, 1);
+        // std::this_thread::sleep_for(std::chrono::milliseconds(100));
         write_sdo(node_id, 0x1800, 0x01, txpdo1_cob_id, 4);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
 
         // 配置RxPDO1 用于PPM/CSP
@@ -410,70 +423,70 @@ private:
         // 1. 禁用RxPDO1
         uint32_t rxpdo1_cob_id = COB_RPDO1 + node_id;
         write_sdo(node_id, 0x1400, 0x01, rxpdo1_cob_id | 0x80000000, 4);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         
         // 2. 设置传输类型
         write_sdo(node_id, 0x1400, 0x02, 0x01, 1);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         
         // 3. 清除RxPDO1映射
         write_sdo(node_id, 0x1600, 0x00, 0x00, 1);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         
         // 4. 设置映射对象：控制字
         write_sdo(node_id, 0x1600, 0x01, 0x60400010, 4);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         
         // 5. 设置映射对象：目标位置
         write_sdo(node_id, 0x1600, 0x02, 0x607A0020, 4);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         
         // 6. 设置RxPDO1映射对象数量为2
         write_sdo(node_id, 0x1600, 0x00, 0x02, 1);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         
         // 7. 设置传输类型并启用RxPDO1
-        write_sdo(node_id, 0x1400, 0x02, 0xFF, 1);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // write_sdo(node_id, 0x1400, 0x02, 0xFF, 1);
+        // std::this_thread::sleep_for(std::chrono::milliseconds(100));
         write_sdo(node_id, 0x1400, 0x01, rxpdo1_cob_id, 4);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
 
-        // 配置RxPDO2 用于PVM/CSV
-        {
-        // RCLCPP_INFO(this->get_logger(), "开始配置RxPDO2");
+        // // 配置RxPDO2 用于PVM/CSV
+        // {
+        // // RCLCPP_INFO(this->get_logger(), "开始配置RxPDO2");
         
-        // 1. 禁用RxPDO2
-        uint32_t rxpdo2_cob_id = COB_RPDO2 + node_id;
-        write_sdo(node_id, 0x1401, 0x01, rxpdo2_cob_id | 0x80000000, 4);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // // 1. 禁用RxPDO2
+        // uint32_t rxpdo2_cob_id = COB_RPDO2 + node_id;
+        // write_sdo(node_id, 0x1401, 0x01, rxpdo2_cob_id | 0x80000000, 4);
+        // std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
-        // 2. 设置传输类型
-        write_sdo(node_id, 0x1401, 0x02, 0x01, 1);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // // 2. 设置传输类型
+        // write_sdo(node_id, 0x1401, 0x02, 0x01, 1);
+        // std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
-        // 3. 清除RxPDO2映射
-        write_sdo(node_id, 0x1601, 0x00, 0x00, 1);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // // 3. 清除RxPDO2映射
+        // write_sdo(node_id, 0x1601, 0x00, 0x00, 1);
+        // std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
-        // 4. 设置映射对象：控制字
-        write_sdo(node_id, 0x1601, 0x01, 0x60400010, 4);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // // 4. 设置映射对象：控制字
+        // write_sdo(node_id, 0x1601, 0x01, 0x60400010, 4);
+        // std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
-        // 5. 设置映射对象：目标速度
-        write_sdo(node_id, 0x1601, 0x02, 0x60FF0020, 4);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // // 5. 设置映射对象：目标速度
+        // write_sdo(node_id, 0x1601, 0x02, 0x60FF0020, 4);
+        // std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
-        // 6. 设置RxPDO2映射对象数量为2
-        write_sdo(node_id, 0x1601, 0x00, 0x02, 1);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // // 6. 设置RxPDO2映射对象数量为2
+        // write_sdo(node_id, 0x1601, 0x00, 0x02, 1);
+        // std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
-        // 7. 设置传输类型并启用RxPDO2
-        write_sdo(node_id, 0x1401, 0x02, 0xFF, 1);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        write_sdo(node_id, 0x1401, 0x01, rxpdo2_cob_id, 4);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
+        // // 7. 设置传输类型并启用RxPDO2
+        // // write_sdo(node_id, 0x1401, 0x02, 0xFF, 1);
+        // // std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // write_sdo(node_id, 0x1401, 0x01, rxpdo2_cob_id, 4);
+        // std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // }
 
         // 配置RxPDO3 用于PTM/CST
         {
@@ -482,33 +495,33 @@ private:
         // 1. 禁用RxPDO3
         uint32_t rxpdo3_cob_id = COB_RPDO3 + node_id;
         write_sdo(node_id, 0x1402, 0x01, rxpdo3_cob_id | 0x80000000, 4);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         
         // 2. 设置传输类型
         write_sdo(node_id, 0x1402, 0x02, 0x01, 1);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         
         // 3. 清除RxPDO3映射
         write_sdo(node_id, 0x1602, 0x00, 0x00, 1);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         
         // 4. 设置映射对象：控制字
         write_sdo(node_id, 0x1602, 0x01, 0x60400010, 4);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         
         // 5. 设置映射对象：目标力矩
         write_sdo(node_id, 0x1602, 0x02, 0x60710010, 4);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         
         // 6. 设置RxPDO3映射对象数量为2
         write_sdo(node_id, 0x1602, 0x00, 0x02, 1);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         
         // 7. 设置传输类型并启用RxPDO3
-        write_sdo(node_id, 0x1402, 0x02, 0xFF, 1);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // write_sdo(node_id, 0x1402, 0x02, 0xFF, 1);
+        // std::this_thread::sleep_for(std::chrono::milliseconds(100));
         write_sdo(node_id, 0x1402, 0x01, rxpdo3_cob_id, 4);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
 
         RCLCPP_INFO(this->get_logger(), "PDO配置完成");
@@ -522,20 +535,15 @@ private:
         send_nmt_command(node_id, NMT_START_REMOTE_NODE);
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
-        // 获取实际位置
-        int32_t actual_position = read_sdo(node_id, OD_ACTUAL_POSITION, 0x00);
-        float actual_angle = position_to_angle(actual_position);
-        // RCLCPP_INFO(this->get_logger(), "实际位置: %.2f°", actual_angle);
-        
         // 发送同步帧
         send_sync_frame();
-        
+
         // RCLCPP_INFO(this->get_logger(), "节点启动完成");
     }
     
     void set_immediate_effect(int node_id, bool immediate)
     {
-        RCLCPP_INFO(this->get_logger(), "设置%s效果", immediate ? "立即" : "非立即");
+        // RCLCPP_INFO(this->get_logger(), "设置%s效果", immediate ? "立即" : "非立即");
         
         // 读取当前控制字
         int32_t controlword = read_sdo(node_id, OD_CONTROL_WORD, 0x00);
@@ -552,7 +560,7 @@ private:
         // 写入新的控制字
         write_sdo(node_id, OD_CONTROL_WORD, 0x00, controlword, 2);
         
-        RCLCPP_INFO(this->get_logger(), "控制字已更新为: 0x%04X", controlword);
+        // RCLCPP_INFO(this->get_logger(), "控制字已更新为: 0x%04X", controlword);
     }
     
     void clear_fault(int node_id)
@@ -575,10 +583,10 @@ private:
         RCLCPP_INFO(this->get_logger(), "使能电机...");
         
         // 读取当前状态字
-        int32_t status_word = read_sdo(node_id, OD_STATUS_WORD, 0x00);
-        RCLCPP_INFO(this->get_logger(), "当前状态字: 0x%04X", status_word);
+        // int32_t status_word = read_sdo(node_id, OD_STATUS_WORD, 0x00);
+        // RCLCPP_INFO(this->get_logger(), "当前状态字: 0x%04X", status_word);
         
-        // 先使用SDO设置控制字
+        // 使用SDO设置控制字
         // 关闭（Shutdown）
         write_sdo(node_id, OD_CONTROL_WORD, 0x00, CONTROL_SHUTDOWN, 2);
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -592,8 +600,8 @@ private:
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
         // 再次读取状态字，确认电机已使能
-        status_word = read_sdo(node_id, OD_STATUS_WORD, 0x00);
-        RCLCPP_INFO(this->get_logger(), "使能后状态字: 0x%04X", status_word);
+        // status_word = read_sdo(node_id, OD_STATUS_WORD, 0x00);
+        // RCLCPP_INFO(this->get_logger(), "使能后状态字: 0x%04X", status_word);
         
         // 然后使用PDO发送控制字
         set_control_word(node_id, CONTROL_SHUTDOWN);  // 关机
@@ -607,7 +615,7 @@ private:
         set_control_word(node_id, CONTROL_ENABLE_OPERATION);  // 使能操作
         send_sync_frame();
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        
+
         RCLCPP_INFO(this->get_logger(), "电机已使能");
     }
     
@@ -799,7 +807,7 @@ private:
     
     void go_to_position(int node_id, float angle)
     {
-        RCLCPP_INFO(this->get_logger(), "移动到位置: %.2f°", angle);
+        // RCLCPP_INFO(this->get_logger(), "移动到位置: %.2f°", angle);
         
         int32_t position = angle_to_position(angle);
         RCLCPP_INFO(this->get_logger(), "目标位置脉冲值: %d", position);
@@ -846,29 +854,6 @@ private:
         
         RCLCPP_INFO(this->get_logger(), "位置命令已发送");
         
-        // 监控目标位置是否到达
-        int retry = 0;
-        while (retry < 10)
-        {
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
-            
-            // 读取状态字
-            int32_t status_word = read_sdo(node_id, OD_STATUS_WORD, 0x00);
-            
-            // 检查目标到达位（位10）
-            if (status_word & 0x0400)
-            {
-                RCLCPP_INFO(this->get_logger(), "目标位置已到达");
-                break;
-            }
-            
-            retry++;
-        }
-        
-        if (retry >= 10)
-        {
-            RCLCPP_WARN(this->get_logger(), "等待目标位置到达超时");
-        }
     }
 
     void set_position_pdo(int node_id, float angle)
@@ -882,8 +867,8 @@ private:
         struct can_frame frame;
         frame.can_id = COB_RPDO1 + node_id;
         frame.can_dlc = 6;  // 控制字(2字节) + 目标位置(4字节)
-        frame.data[0] = CONTROL_ENABLE_OPERATION & 0xFF;  // 控制字低字节
-        frame.data[1] = (CONTROL_ENABLE_OPERATION >> 8) & 0xFF;  // 控制字高字节
+        frame.data[0] = (CONTROL_ENABLE_OPERATION | CONTROL_NEW_SET_POINT_IMMEDIATE_1) & 0xFF;  // 控制字低字节
+        frame.data[1] = ((CONTROL_ENABLE_OPERATION | CONTROL_NEW_SET_POINT_IMMEDIATE_1) >> 8) & 0xFF;  // 控制字高字节
         frame.data[2] = position & 0xFF;  // 目标位置低字节
         frame.data[3] = (position >> 8) & 0xFF;
         frame.data[4] = (position >> 16) & 0xFF;
@@ -894,9 +879,19 @@ private:
             RCLCPP_ERROR(this->get_logger(), "发送目标位置失败");
             return;
         }
-        
-        send_sync_frame();
-        
+        // // 设置命令触发位，创建上升沿
+        // set_control_word(node_id, CONTROL_ENABLE_OPERATION | CONTROL_NEW_SET_POINT_IMMEDIATE_1);
+        frame.data[0] = (CONTROL_ENABLE_OPERATION | CONTROL_NEW_SET_POINT_IMMEDIATE_2) & 0xFF;  // 控制字低字节
+        frame.data[1] = ((CONTROL_ENABLE_OPERATION | CONTROL_NEW_SET_POINT_IMMEDIATE_2) >> 8) & 0xFF;  // 控制字高字节
+        if (write(can_socket_, &frame, sizeof(struct can_frame)) != sizeof(struct can_frame))
+        {
+            RCLCPP_ERROR(this->get_logger(), "发送目标位置失败");
+            return;
+        }
+        // 先重置命令触发位（位4）
+        // set_control_word(node_id, CONTROL_ENABLE_OPERATION | CONTROL_NEW_SET_POINT_IMMEDIATE_2);
+        // std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
         RCLCPP_INFO(this->get_logger(), "位置命令已通过PDO发送");
 
     }
@@ -925,9 +920,6 @@ private:
             RCLCPP_ERROR(this->get_logger(), "发送目标速度失败");
             return;
         }
-        
-        send_sync_frame();
-        
         RCLCPP_INFO(this->get_logger(), "速度命令已通过PDO发送");
 
     }
@@ -964,6 +956,10 @@ private:
         else if (size == 2)
         {
             command |= 0x0B;  // 2字节
+        }
+        else if (size == 3)
+        {
+            command |= 0x07;  // 3字节
         }
         else if (size == 4)
         {
@@ -1067,7 +1063,7 @@ private:
                     // 检查目标到达位
                     if (status_word & 0x0400)
                     {
-                        RCLCPP_INFO(this->get_logger(), "目标位置已到达");
+                        // RCLCPP_INFO(this->get_logger(), "目标位置已到达");
                     }
                     if (status_word & 0x0008)
                     {
@@ -1111,7 +1107,7 @@ private:
 
                     float angle = position_to_angle(position);
                     motor_config_[node_id-1].actual_position = angle;
-                    motor_config_[node_id-1].actual_current = current * motor_config_[node_id-1].rated_current * 0.001; // 转换为安培
+                    motor_config_[node_id-1].actual_current = current * static_cast<int>(motor_config_[node_id-1].rated_current) * 0.001; // 转换为安培
                     // // 发布位置
                     // auto pos_msg = std_msgs::msg::Float32();
                     // pos_msg.data = angle;
@@ -1120,7 +1116,7 @@ private:
                     // 检查目标到达位
                     if (status_word & 0x0400)
                     {
-                        RCLCPP_INFO(this->get_logger(), "目标位置已到达");
+                        // RCLCPP_INFO(this->get_logger(), "目标位置已到达");
                     }
                 }
             }break;
@@ -1137,70 +1133,6 @@ private:
                 return;
 
         }
-        /*
-        // if (cob_id == COB_TSDO)
-        // {
-        //     // 处理SDO响应
-        //     uint8_t command = frame.data[0];
-        //     uint16_t index = frame.data[1] | (frame.data[2] << 8);
-        //     uint8_t subindex = frame.data[3];
-            
-        //     if (command == 0x80)  // SDO中止
-        //     {
-        //         uint32_t abort_code = frame.data[4] | (frame.data[5] << 8) | (frame.data[6] << 16) | (frame.data[7] << 24);
-        //         RCLCPP_ERROR(this->get_logger(), "SDO中止: 索引=0x%04X, 子索引=0x%02X, 错误码=0x%08X", index, subindex, abort_code);
-        //     }
-        //     else if (index == OD_STATUS_WORD && subindex == 0x00)  // 状态字
-        //     {
-        //         uint16_t status_word = frame.data[4] | (frame.data[5] << 8);
-        //         status_word_ = status_word;
-                
-        //         // 检查目标到达位
-        //         if (status_word & 0x0400)
-        //         {
-        //             RCLCPP_INFO(this->get_logger(), "目标位置已到达");
-        //         }
-        //     }
-        //     else if (index == OD_ACTUAL_POSITION && subindex == 0x00)  // 实际位置
-        //     {
-        //         int32_t position = frame.data[4] | (frame.data[5] << 8) | (frame.data[6] << 16) | (frame.data[7] << 24);
-        //         position_ = position;
-        //         float angle = position_to_angle(position);
-                
-        //         // 发布位置
-        //         auto msg = std_msgs::msg::Float32();
-        //         msg.data = angle;
-        //         position_pub_->publish(msg);
-        //     }
-        // }
-        // else if (cob_id == COB_TPDO1)
-        // {
-        //     // 处理TPDO1响应
-        //     if (frame.can_dlc >= 6)  // 状态字(2字节) + 实际位置(4字节)
-        //     {
-        //         uint16_t status_word = frame.data[0] | (frame.data[1] << 8);
-        //         int32_t position = frame.data[2] | (frame.data[3] << 8) | (frame.data[4] << 16) | (frame.data[5] << 24);
-                
-        //         status_word_ = status_word;
-        //         position_ = position;
-                
-        //         float angle = position_to_angle(position);
-                
-        //         // 发布位置
-        //         auto pos_msg = std_msgs::msg::Float32();
-        //         pos_msg.data = angle;
-        //         position_pub_->publish(pos_msg);
-                
-        //         // 检查目标到达位
-        //         if (status_word & 0x0400)
-        //         {
-        //             RCLCPP_INFO(this->get_logger(), "目标位置已到达");
-        //         }
-        //     }
-        // }
-        // else if(cob_id == COB_TPDO2){
-        //     // 处理TPDO2响应（如果需要）
-        */
     }
     
     void publish_status()
@@ -1239,10 +1171,12 @@ private:
         // auto pos_msg = std_msgs::msg::Float32();
         // pos_msg.data = position_to_angle(position_);
         // position_pub_->publish(pos_msg);
+        joint_state_real.header.stamp = this->now();
         for (size_t i = 0; i < NUM_MOTORS; ++i) {
             joint_state_real.position.push_back(motor_config_[i].actual_position);
             // joint_state_real.velocity.push_back(motor_config_[i].actual_velocity);
             // joint_state_real.effort.push_back(pulse_to_effort(motor_config_[i].actual_effort));
+            joint_state_real.effort.push_back(motor_config_[i].actual_current);
         }
         position_pub_->publish(joint_state_real);
     }
@@ -1464,25 +1398,22 @@ private:
     }
     
     void initialize_motor(int node_id)
-    {
+    {   
+        // 获取额定电流和额定力矩
+        get_rated_current(node_id);
+        get_rated_torque(node_id);
         // 初始化节点
         initialize_node(motor_config_[node_id-1]);
         
         // 配置PDO映射
         configure_pdo(node_id);
         
-
-
         // 等待一段时间
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
         // 启动节点
         start_node(node_id);
 
-        // 获取额定电流和额定力矩
-        get_rated_current(node_id);
-        get_rated_torque(node_id);
-        
         // 设置立即生效
         set_immediate_effect(node_id, true);
         
@@ -1596,7 +1527,8 @@ private:
 
     sensor_msgs::msg::JointState joint_state_cmd;
 
-    rclcpp::TimerBase::SharedPtr timer_;
+    rclcpp::TimerBase::SharedPtr receive_timer_;
+    rclcpp::TimerBase::SharedPtr sync_timer_;
     rclcpp::TimerBase::SharedPtr status_timer_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr position_pub_;
