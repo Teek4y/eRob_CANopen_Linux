@@ -184,15 +184,7 @@ public:
             // 初始化节点
             initialize_motor(motor_config_[i].node_id);
         }
-        // 设置目标位置（例如，移动到90度）
-        // go_to_position(0.0);
-        // go_to_position(4,180);
-        // go_to_position(6,0);
 
-        // set_position_pdo(4, 180);
-        // set_position_pdo(6, 180);
-        // send_sync_frame();
-        
         // sync_timer_ = this->create_wall_timer(
         //     std::chrono::milliseconds(10),
         //     std::bind(&CANopenROS2::send_sync_frame, this));
@@ -208,8 +200,6 @@ public:
         velocity_pub_ = this->create_publisher<sensor_msgs::msg::JointState>("erob_velocity", 10);
         
         // 创建订阅器
-        // position_sub_ = this->create_subscription<std_msgs::msg::Float32>(
-        //     "target_position", 10, std::bind(&CANopenROS2::position_callback, this, std::placeholders::_1));
         position_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
             "target_position", 10, std::bind(&CANopenROS2::position_callback, this, std::placeholders::_1));
         velocity_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
@@ -964,19 +954,45 @@ private:
     {
         RCLCPP_INFO(this->get_logger(), "通过PDO设置速度: %.2f°", velocity);
         
-        int32_t position = velocity_to_pulse(velocity);
-        RCLCPP_INFO(this->get_logger(), "目标速度脉冲值: %d", position);
+        int32_t pulse = velocity_to_pulse(velocity);
+        RCLCPP_INFO(this->get_logger(), "目标速度脉冲值: %d", pulse);
         
         // 使用PDO发送目标速度
         struct can_frame frame;
         frame.can_id = COB_RPDO2 + node_id;
-        frame.can_dlc = 6;  // 控制字(2字节) + 目标位置(4字节)
+        frame.can_dlc = 6;  // 控制字(2字节) + 目标速度(4字节)
         frame.data[0] = CONTROL_ENABLE_OPERATION & 0xFF;  // 控制字低字节
         frame.data[1] = (CONTROL_ENABLE_OPERATION >> 8) & 0xFF;  // 控制字高字节
-        frame.data[2] = position & 0xFF;  // 目标速度低字节
-        frame.data[3] = (position >> 8) & 0xFF;
-        frame.data[4] = (position >> 16) & 0xFF;
-        frame.data[5] = (position >> 24) & 0xFF;  // 目标速度高字节
+        frame.data[2] = pulse & 0xFF;  // 目标速度低字节
+        frame.data[3] = (pulse >> 8) & 0xFF;
+        frame.data[4] = (pulse >> 16) & 0xFF;
+        frame.data[5] = (pulse >> 24) & 0xFF;  // 目标速度高字节
+        
+        if (write(can_socket_, &frame, sizeof(struct can_frame)) != sizeof(struct can_frame))
+        {
+            RCLCPP_ERROR(this->get_logger(), "发送目标速度失败");
+            return;
+        }
+        RCLCPP_INFO(this->get_logger(), "速度命令已通过PDO发送");
+
+    }
+
+    void set_torque_pdo(int node_id, float torque)
+    {
+        RCLCPP_INFO(this->get_logger(), "通过PDO设置速度: %.2f°", torque);
+        
+        // int16_t hex = torque_to_hex(torque);
+        int16_t hex = static_cast<int16_t>(torque * 1000.0 / static_cast<float>(motor_config_[node_id-1].rated_current));
+        RCLCPP_INFO(this->get_logger(), "目标速度脉冲值: %d", hex);
+        
+        // 使用PDO发送目标速度
+        struct can_frame frame;
+        frame.can_id = COB_RPDO3 + node_id;
+        frame.can_dlc = 6;  // 控制字(2字节) + 目标电流(2字节)
+        frame.data[0] = CONTROL_ENABLE_OPERATION & 0xFF;  // 控制字低字节
+        frame.data[1] = (CONTROL_ENABLE_OPERATION >> 8) & 0xFF;  // 控制字高字节
+        frame.data[2] = hex & 0xFF;  // 目标电流低字节
+        frame.data[3] = (hex >> 8) & 0xFF;
         
         if (write(can_socket_, &frame, sizeof(struct can_frame)) != sizeof(struct can_frame))
         {
