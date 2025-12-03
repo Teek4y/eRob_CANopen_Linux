@@ -116,19 +116,44 @@ ros2 launch erob_master canopen_ros2.launch.py can_interface:=can0 node_id:=2 au
 
 ### 1. Position Control
 
-Control motor position by publishing to /target_position topic:
+#### Service Control
 
-- Move to 90 degrees
+Control motor position by publishing to service /set_erob_position :
+
+- Joint 6 Move to 90 degrees
 
 ```bash
-ros2 topic pub /target_position sensor_msgs/msg/JointState "position: 90.0 100.0 20.0" --once
+ros2 service call /set_erob_position erob_master/srv/MoveMotorPPM "node_id: 6 target_position: 90.0"
 ```
+
+#### Topic Control
+
+Control motor position by publishing sensor_msgs::msg::JointState messge to topic /target_position :
+
+```bash
+JointState:
+   position[]:
+      120.0
+      180.0
+      120.0
+      90.0
+      100.0
+      0.0
+      12.0
+```
+
 
 ### 2. Velocity Control
 
 Control motor velocity by publishing to /target_velocity topic:
 
 - Set velocity to 10 degrees/second
+
+todo
+
+### 3. Torque Control
+
+Control motor torque by publishing to /target_torque topic:
 
 todo
 
@@ -144,7 +169,7 @@ ros2 service call /start_erob erob_master/srv/ConfigureMotor "node_id: 1"
 
 ```bash
 ros2 service call /stop_erob erob_master/srv/ConfigureMotor "node_id: 1"
-
+```
 
 ### 3. Reset Motor
 
@@ -166,13 +191,6 @@ ros2 service call /set_erob_mode erob_master/srv/ConfigureMotor "operation_mode:
 ros2 service call /set_erob_mode erob_master/srv/ConfigureMotor "operation_mode: PVM"
 ```
 
-## Setting Motor Mode
-
-- Set to position mode
-
-```bash
-ros2 service call /set_erob_position erob_master/srv/ConfigureMotor "node_id: 6 target_position: 180"
-```
 
 ## Monitor Motor Status
 
