@@ -47,8 +47,8 @@
 #define CONTROL_DISABLE_VOLTAGE     0x00
 #define CONTROL_FAULT_RESET         0x80
 #define CONTROL_NEW_SET_POINT       0x10  // Bit 4 for new set point
-#define CONTROL_NEW_SET_POINT_IMMEDIATE_1   0x30
-#define CONTROL_NEW_SET_POINT_IMMEDIATE_2   0x20
+#define CONTROL_NEW_SET_POINT_IMMEDIATE_1   0x20
+#define CONTROL_NEW_SET_POINT_IMMEDIATE_2   0x30
 
 // CiA402操作模式
 #define MODE_PROFILE_POSITION       1
@@ -174,7 +174,7 @@ public:
         // go_to_position(6,0);
 
         set_position_pdo(4, 180);
-        set_position_pdo(6, 0);
+        set_position_pdo(6, 180);
         // send_sync_frame();
         
         sync_timer_ = this->create_wall_timer(
@@ -288,21 +288,21 @@ private:
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
         // 发送NMT重置命令
-        send_nmt_command(node_id, NMT_RESET_NODE);
+        send_nmt_command(node_id, NMT_RESET_COMM);
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
         
         // 先使能电机，再设置操作模式
         // 关闭（Shutdown）
-        write_sdo(node_id, OD_CONTROL_WORD, 0x00, CONTROL_SHUTDOWN, 2);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // write_sdo(node_id, OD_CONTROL_WORD, 0x00, CONTROL_SHUTDOWN, 2);
+        // std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
-        // 准备开启（Switch on）
-        write_sdo(node_id, OD_CONTROL_WORD, 0x00, CONTROL_SWITCH_ON, 2);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // // 准备开启（Switch on）
+        // write_sdo(node_id, OD_CONTROL_WORD, 0x00, CONTROL_SWITCH_ON, 2);
+        // std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-        // 使能操作（Enable operation）
-        write_sdo(node_id, OD_CONTROL_WORD, 0x00, CONTROL_ENABLE_OPERATION, 2);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // // 使能操作（Enable operation）
+        // write_sdo(node_id, OD_CONTROL_WORD, 0x00, CONTROL_ENABLE_OPERATION, 2);
+        // std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
         // 读取状态字，确认电机已使能
         // int32_t status_word = read_sdo(node_id, OD_STATUS_WORD, 0x00);
@@ -310,7 +310,7 @@ private:
         
         // 现在尝试设置操作模式
         write_sdo(node_id, OD_OPERATION_MODE, 0x00, motor_config.operation_mode, 1);
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
         // 验证操作模式
         int32_t mode = read_sdo(node_id, OD_OPERATION_MODE_DISPLAY, 0x00);
@@ -358,11 +358,11 @@ private:
         
         // 禁用同步生成器
         write_sdo(node_id, OD_SYNC_MESSAGE, 0x00, 0x00000080, 4);
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
         // 设置通信周期为1000微秒
         write_sdo(node_id, OD_SYNC_PERIOD, 0x00, 1000, 4);
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
         RCLCPP_INFO(this->get_logger(), "节点初始化完成");
     }
@@ -452,41 +452,41 @@ private:
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
 
-        // // 配置RxPDO2 用于PVM/CSV
-        // {
-        // // RCLCPP_INFO(this->get_logger(), "开始配置RxPDO2");
+        // 配置RxPDO2 用于PVM/CSV
+        {
+        // RCLCPP_INFO(this->get_logger(), "开始配置RxPDO2");
         
-        // // 1. 禁用RxPDO2
-        // uint32_t rxpdo2_cob_id = COB_RPDO2 + node_id;
-        // write_sdo(node_id, 0x1401, 0x01, rxpdo2_cob_id | 0x80000000, 4);
-        // std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // 1. 禁用RxPDO2
+        uint32_t rxpdo2_cob_id = COB_RPDO2 + node_id;
+        write_sdo(node_id, 0x1401, 0x01, rxpdo2_cob_id | 0x80000000, 4);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         
-        // // 2. 设置传输类型
-        // write_sdo(node_id, 0x1401, 0x02, 0x01, 1);
-        // std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // 2. 设置传输类型
+        write_sdo(node_id, 0x1401, 0x02, 0x01, 1);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         
-        // // 3. 清除RxPDO2映射
-        // write_sdo(node_id, 0x1601, 0x00, 0x00, 1);
-        // std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // 3. 清除RxPDO2映射
+        write_sdo(node_id, 0x1601, 0x00, 0x00, 1);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         
-        // // 4. 设置映射对象：控制字
-        // write_sdo(node_id, 0x1601, 0x01, 0x60400010, 4);
-        // std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // 4. 设置映射对象：控制字
+        write_sdo(node_id, 0x1601, 0x01, 0x60400010, 4);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         
-        // // 5. 设置映射对象：目标速度
-        // write_sdo(node_id, 0x1601, 0x02, 0x60FF0020, 4);
-        // std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // 5. 设置映射对象：目标速度
+        write_sdo(node_id, 0x1601, 0x02, 0x60FF0020, 4);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         
-        // // 6. 设置RxPDO2映射对象数量为2
-        // write_sdo(node_id, 0x1601, 0x00, 0x02, 1);
-        // std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // 6. 设置RxPDO2映射对象数量为2
+        write_sdo(node_id, 0x1601, 0x00, 0x02, 1);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         
-        // // 7. 设置传输类型并启用RxPDO2
-        // // write_sdo(node_id, 0x1401, 0x02, 0xFF, 1);
-        // // std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        // write_sdo(node_id, 0x1401, 0x01, rxpdo2_cob_id, 4);
+        // 7. 设置传输类型并启用RxPDO2
+        // write_sdo(node_id, 0x1401, 0x02, 0xFF, 1);
         // std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        // }
+        write_sdo(node_id, 0x1401, 0x01, rxpdo2_cob_id, 4);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
 
         // 配置RxPDO3 用于PTM/CST
         {
@@ -604,17 +604,17 @@ private:
         // RCLCPP_INFO(this->get_logger(), "使能后状态字: 0x%04X", status_word);
         
         // 然后使用PDO发送控制字
-        set_control_word(node_id, CONTROL_SHUTDOWN);  // 关机
-        send_sync_frame();
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // set_control_word(node_id, CONTROL_SHUTDOWN);  // 关机
+        // send_sync_frame();
+        // std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
-        set_control_word(node_id, CONTROL_SWITCH_ON);  // 开启
-        send_sync_frame();
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // set_control_word(node_id, CONTROL_SWITCH_ON);  // 开启
+        // send_sync_frame();
+        // std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
-        set_control_word(node_id, CONTROL_ENABLE_OPERATION);  // 使能操作
-        send_sync_frame();
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // set_control_word(node_id, CONTROL_ENABLE_OPERATION);  // 使能操作
+        // send_sync_frame();
+        // std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
         RCLCPP_INFO(this->get_logger(), "电机已使能");
     }
