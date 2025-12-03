@@ -28,6 +28,7 @@ include_directories(
 
 set(srv_files
   "srv/ConfigureMotor.srv"
+  "srv/MoveMotorPPM.srv"
 )
 rosidl_generate_interfaces(${PROJECT_NAME}
   ${srv_files}
@@ -35,13 +36,13 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 )
 
 # 添加erob_canoepn_ros2可执行文件
-add_executable(erob_canoepn_ros2 src/erob_canopen_ros2.cpp)
-rosidl_target_interfaces(erob_canoepn_ros2 ${PROJECT_NAME} "rosidl_typesupport_cpp")
-ament_target_dependencies(erob_canoepn_ros2 rclcpp std_msgs sensor_msgs std_srvs geometry_msgs)
+add_executable(erob_canopen_ros2 src/erob_canopen_ros2.cpp)
+rosidl_target_interfaces(erob_canopen_ros2 ${PROJECT_NAME} "rosidl_typesupport_cpp")
+ament_target_dependencies(erob_canopen_ros2 rclcpp std_msgs sensor_msgs std_srvs geometry_msgs)
 
 # 安装可执行文件
 install(TARGETS
-  erob_canoepn_ros2
+  erob_canopen_ros2
   DESTINATION lib/${PROJECT_NAME}
 )
 

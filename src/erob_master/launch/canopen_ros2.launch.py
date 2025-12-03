@@ -19,7 +19,7 @@ def generate_launch_description():
     # 启动CANopenROS2节点
     canopen_ros2_node = Node(
         package='erob_master',
-        executable='erob_canoepn_ros2',
+        executable='erob_canopen_ros2',
         name='canopen_ros2',
         output='screen',
         emulate_tty=True,

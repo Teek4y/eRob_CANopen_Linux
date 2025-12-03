@@ -25,7 +25,7 @@ eRob Master is a ROS 2-based CANopen motor controller used to control motors tha
 1. Clone repository
 
    ```bash
-   git clone git@github.com:ZeroErrControl/eRob_CANopen_Linux.git
+   git clone https://github.com/Teek4y/eRob_CANopen_Linux.git
    ```
 
 3. Build
@@ -64,6 +64,35 @@ sudo ip link set up can0
 ip -details link show can0
 ```
 
+## 说明
+
+### 1.支持功能
+
+多电机PDO配置、使能、错误清除、重置、PPM控制
+
+#### 默认PDO配置
+
+TxPDO1: 状态字(0x6041)+实际位置(0x6064)+实际电流(0x6078) 8Byte
+
+TxPDO2: 状态字(0x6041)+实际速度(0x606C) 6Byte
+
+RxPDO1: 控制字(0x6040)+目标位置(0x607A) 6Byte
+
+RxPDO2: 控制字(0x6040)+目标速度(0x60FF) 6Byte
+
+RxPDO3: 控制字(0x6040)+目标力矩(0x6071) 6Byte
+
+### 2.消息类型
+
+多电机实际值以 sensor_msgs::msg::JointState 消息类型通过话题 /erob_joint_state_real 发布
+
+   position：电机实际位置
+   velocity：电机实际速度
+   effort：电机实际电流
+
+此外订阅 sensor_msgs::msg::JointState 消息类型话题 /target_position 的数据，将目标角度下发到关节电机。
+
+
 ## Usage
 
 ### 1. Launch Node
@@ -73,6 +102,10 @@ Launch with default parameters
 ```bash
 ros2 launch erob_master canopen_ros2.launch.py
 ```
+
+
+
+
 
 ### 2. Launch with custom parameters
 ```bash
@@ -91,27 +124,13 @@ Control motor position by publishing to /target_position topic:
 ros2 topic pub /target_position sensor_msgs/msg/JointState "position: 90.0 100.0 20.0" --once
 ```
 
-- Move to 180 degrees
-
-```bash
-ros2 topic pub /target_position sensor_msgs/msg/JointState "position: 90.0 100.0 20.0" --once
-```
-
 ### 2. Velocity Control
 
 Control motor velocity by publishing to /target_velocity topic:
 
 - Set velocity to 10 degrees/second
 
-```bash
-ros2 topic pub /target_velocity std_msgs/msg/Float32 "data: 10.0" --once
-```
-
-- Set velocity to -10 degrees/second
-
-```bash
-ros2 topic pub /target_velocity std_msgs/msg/Float32 "data: -10.0" --once
-```
+todo
 
 ## Service Interfaces
 
@@ -147,16 +166,24 @@ ros2 service call /set_erob_mode erob_master/srv/ConfigureMotor "operation_mode:
 ros2 service call /set_erob_mode erob_master/srv/ConfigureMotor "operation_mode: PVM"
 ```
 
+## Setting Motor Mode
+
+- Set to position mode
+
+```bash
+ros2 service call /set_erob_position erob_master/srv/ConfigureMotor "node_id: 6 target_position: 180"
+```
+
 ## Monitor Motor Status
 
 ```bash
 ros2 topic echo /erob_status
 ```
 
-## View Motor Position
+## View Motor Joint State
 
 ```bash
-ros2 topic echo /erob_position
+ros2 topic echo /erob_joint_state_real
 ```
 
 ## View Motor Velocity
@@ -183,6 +210,7 @@ ros2 topic echo /erob_velocity
 | /stop_erob | erob_master/srv/ConfigureMotor | Stop motor ("node_id: 1") |
 | /reset_erob | erob_master/srv/ConfigureMotor | Reset motor ("node_id: 1") |
 | /set_erob_mode | erob_master/srv/ConfigureMotor | Set motor mode ("PPM": position mode, "PVM": velocity mode) |
+| /set_erob_position | erob_master/srv/MoveMotorPPM | Set motor positino ("{node_id: 1, target_position: 180.0}") |
 
 ## Parameter List
 
