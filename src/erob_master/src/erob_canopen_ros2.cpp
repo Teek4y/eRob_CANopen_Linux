@@ -90,7 +90,9 @@
 #define OD_ACTUAL_CURRENT           0x6078
 
 #define OD_SYNC_MESSAGE             0x1005
-#define OD_SYNC_PERIOD             0x1006
+#define OD_SYNC_PERIOD              0x1006
+
+#define OD_TEMPERATURE              0x22A2
 
 // 编码器分辨率
 #define ENCODER_RESOLUTION       524288
@@ -107,11 +109,13 @@ struct MotorConfig{
     float actual_position;
     float actual_velocity;
     float actual_torque;
+    float torque_constant;
     //actual_torque = torque_constant * vel_ratio * efficiency * actual_current
     float actual_current;
 
     uint32_t rated_current;
     uint32_t rated_torque;
+    int16_t temprature;
 
     float max_velocity;
     float max_torque;
@@ -173,6 +177,14 @@ public:
         motor_config_[5].rated_torque = 31000;
         motor_config_[6].rated_torque = 10000;
 
+        motor_config_[0].torque_constant = 52000;
+        motor_config_[1].torque_constant = 52000;
+        motor_config_[2].torque_constant = 31000;
+        motor_config_[3].torque_constant = 31000;
+        motor_config_[4].torque_constant = 31000;
+        motor_config_[5].torque_constant = 31000;
+        motor_config_[6].torque_constant = 10000;
+
         RCLCPP_INFO(this->get_logger(), "初始化Simple eRob Control，CAN接口=%s", 
                 can_interface_.c_str());
 
@@ -189,10 +201,15 @@ public:
         //     std::chrono::milliseconds(10),
         //     std::bind(&CANopenROS2::send_sync_frame, this));
         
-        // 创建状态定时器
+        // 创建状态发布定时器
         status_timer_ = this->create_wall_timer(
             std::chrono::milliseconds(10),
             std::bind(&CANopenROS2::publish_status, this));
+        
+        // 创建温度获取定时器
+        temeprature_timer_ = this->create_wall_timer(
+            std::chrono::milliseconds(1000),
+            std::bind(&CANopenROS2::get_temperature, this));
         
         // 创建发布器
         status_pub_ = this->create_publisher<std_msgs::msg::String>("erob_status", 10);
@@ -1112,7 +1129,7 @@ private:
         uint32_t cob_id = frame.can_id & 0x780;  // 提取功能码
         uint8_t node_id = frame.can_id & 0x7F;  // 提取节点ID
         
-        RCLCPP_INFO(this->get_logger(), "接收到CAN帧: ID=0x%03X, DLC=%d, Data=0x%02X%02X%02X%02X%02X%02X%02X%02X",
+        RCLCPP_DEBUG(this->get_logger(), "接收到CAN帧: ID=0x%03X, DLC=%d, Data=0x%02X%02X%02X%02X%02X%02X%02X%02X",
             frame.can_id, frame.can_dlc,
             frame.data[0], frame.data[1], frame.data[2], frame.data[3],
             frame.data[4], frame.data[5], frame.data[6], frame.data[7]);
@@ -1167,6 +1184,12 @@ private:
                     motor_config_[node_id-1].rated_torque = rated_torque;
                     RCLCPP_INFO(this->get_logger(), "电机id: %d 额定力矩: %.2f Nm", node_id, rated_torque*0.001);
                 }
+                else if (index == OD_TEMPERATURE && subindex == 0x00)   // 温度
+                {
+                    int16_t temprature = frame.data[4] | (frame.data[5] << 8);
+                    motor_config_[node_id-1].temprature = temprature;
+                    ROS_INFO(this->get_logger(), "电机id: %d 温度: %d °", node_id, motor_config_[node_id-1].temprature);
+                }
             }break;
             
             case COB_TPDO1:{
@@ -1181,7 +1204,7 @@ private:
                     float angle = position_to_angle(position);
                     motor_config_[node_id-1].actual_position = angle;
                     motor_config_[node_id-1].actual_current = current * static_cast<int>(motor_config_[node_id-1].rated_current) * 0.001; // 转换为mA
-
+                    motor_config_[node_id-1].actual_torque = motor_config_[i].torque_constant * vel_ratio * efficiency * motor_config_[i].actual_current;
                     // 检查目标到达位
                     if (status_word & 0x0400)
                     {
@@ -1261,12 +1284,13 @@ private:
         for (size_t i = 0; i < NUM_MOTORS; ++i) {
             joint_state_real.position.push_back(motor_config_[i].actual_position);
             joint_state_real.velocity.push_back(motor_config_[i].actual_velocity);
-            // joint_state_real.effort.push_back(pulse_to_effort(motor_config_[i].actual_effort));
-            joint_state_real.effort.push_back(motor_config_[i].actual_current);
+            joint_state_real.effort.push_back(motor_config_[i].actual_torque);
         }
         position_pub_->publish(joint_state_real);
     }
     
+// 各类回调函数
+{
     // 回调函数：处理目标位置
     void position_callback(const sensor_msgs::msg::JointState::SharedPtr msg)
     {
@@ -1467,7 +1491,10 @@ private:
             response->message = "停止失败: " + std::string(e.what());
         }
     }
+}
 
+    // 各类辅助函数
+{
     // 辅助函数：角度转位置脉冲
     int32_t angle_to_position(float angle)
     {
@@ -1489,6 +1516,7 @@ private:
         return velocity;
     }
 
+    // 辅助函数：寄存器值转电流
     float hex_to_current(int32_t hex_value)
     {
         // 假设电流单位转换关系为：实际电流(A) = hex_value * 0.001
@@ -1509,7 +1537,10 @@ private:
         int32_t acceleration_pulse_per_sec2 = static_cast<int32_t>((acceleration_rpm2 / 60.0) * ENCODER_RESOLUTION);
         return acceleration_pulse_per_sec2;
     }
-    
+
+}
+
+
     void initialize_motor(int node_id)
     {   
         // 获取额定电流和额定力矩
@@ -1623,10 +1654,15 @@ private:
         // motor_config_[node_id-1].rated_current = rated_current_hex;
         // RCLCPP_INFO(this->get_logger(), "额定电流: %.2f A", rated_current_hex * 0.001);
     }
+
     void get_rated_torque(int node_id){
         read_sdo(node_id, OD_RATED_TORQUE, 0x00);
         // motor_config_[node_id-1].rated_torque = rated_torque_hex;
         // RCLCPP_INFO(this->get_logger(), "额定力矩: %.2f Nm", rated_torque_hex * 0.001);
+    }
+    
+    void get_temperature(int node_id){
+        read_sdo(node_id, OD_TEMPERATURE, 0x00);
     }
 
 
@@ -1635,14 +1671,13 @@ private:
     uint16_t status_word_ = 0;
     int32_t position_ = 0;
 
-    
-
 
     sensor_msgs::msg::JointState joint_state_cmd;
 
     rclcpp::TimerBase::SharedPtr receive_timer_;
     rclcpp::TimerBase::SharedPtr sync_timer_;
     rclcpp::TimerBase::SharedPtr status_timer_;
+    rclcpp::TimerBase::SharedPtr temeprature_timer_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr position_pub_;
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr velocity_pub_;
