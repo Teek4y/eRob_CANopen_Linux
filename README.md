@@ -228,7 +228,7 @@ ros2 topic echo /erob_velocity
 | /stop_erob | erob_master/srv/ConfigureMotor | Stop motor ("node_id: 1") |
 | /reset_erob | erob_master/srv/ConfigureMotor | Reset motor ("node_id: 1") |
 | /set_erob_mode | erob_master/srv/ConfigureMotor | Set motor mode ("PPM": position mode, "PVM": velocity mode) |
-| /set_erob_position | erob_master/srv/MoveMotorPPM | Set motor positino ("{node_id: 1, target_position: 180.0}") |
+| /set_erob_position | erob_master/srv/MoveMotorPPM | Set motor position ("{node_id: 1, target_position: 180.0}") |
 
 ## Parameter List
 
