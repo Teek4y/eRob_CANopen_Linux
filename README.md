@@ -104,10 +104,8 @@ ros2 launch erob_master canopen_ros2.launch.py
 ```
 
 
+### 2. Launch with custom parameters（不可用）
 
-
-
-### 2. Launch with custom parameters
 ```bash
 ros2 launch erob_master canopen_ros2.launch.py can_interface:=can0 node_id:=2 auto_start:=true
 ```
@@ -123,7 +121,7 @@ Control motor position by publishing to service /set_erob_position :
 - Joint 6 Move to 90 degrees
 
 ```bash
-ros2 service call /set_erob_position erob_master/srv/MoveMotorPPM "node_id: 6 target_position: 90.0"
+ros2 service call /set_erob_position erob_master/srv/MoveMotorPPM "{node_id: 6, target_position: 90.0}"
 ```
 
 #### Topic Control
@@ -162,19 +160,19 @@ todo
 ### 1. Start Motor
 
 ```bash
-ros2 service call /start_erob erob_master/srv/ConfigureMotor "node_id: 1"
+ros2 service call /start_erob erob_master/srv/MotorID "node_id: 1"
 ```
 
 ### 2. Stop Motor
 
 ```bash
-ros2 service call /stop_erob erob_master/srv/ConfigureMotor "node_id: 1"
+ros2 service call /stop_erob erob_master/srv/MotorID "node_id: 1"
 ```
 
 ### 3. Reset Motor
 
 ```bash
-ros2 service call /reset_erob erob_master/srv/ConfigureMotor "node_id: 1"
+ros2 service call /reset_erob erob_master/srv/MotorID "node_id: 1"
 ```
 
 ## Setting Motor Mode
@@ -182,17 +180,17 @@ ros2 service call /reset_erob erob_master/srv/ConfigureMotor "node_id: 1"
 - Set to position mode
 
 ```bash
-ros2 service call /set_erob_mode erob_master/srv/ConfigureMotor "operation_mode: PPM"
+ros2 service call /set_erob_mode erob_master/srv/ConfigureMotor "{node_id: 1, operation_mode: PPM}"
 ```
 
 - Set to velocity mode
 
 ```bash
-ros2 service call /set_erob_mode erob_master/srv/ConfigureMotor "operation_mode: PVM"
+ros2 service call /set_erob_mode erob_master/srv/ConfigureMotor "{node_id: 2, operation_mode: PVM}"
 ```
 
 
-## Monitor Motor Status
+## Monitor Motor Status（不可用）
 
 ```bash
 ros2 topic echo /erob_status
@@ -204,7 +202,7 @@ ros2 topic echo /erob_status
 ros2 topic echo /erob_joint_state_real
 ```
 
-## View Motor Velocity
+## View Motor Velocity （不可用）
 
 ```bash
 ros2 topic echo /erob_velocity
@@ -224,10 +222,10 @@ ros2 topic echo /erob_velocity
 
 | Service Name | Service Type | Description |
 | ------------ | ------------ | ----------- |
-| /start_erob | erob_master/srv/ConfigureMotor | Start motor ("node_id: 1") |
-| /stop_erob | erob_master/srv/ConfigureMotor | Stop motor ("node_id: 1") |
-| /reset_erob | erob_master/srv/ConfigureMotor | Reset motor ("node_id: 1") |
-| /set_erob_mode | erob_master/srv/ConfigureMotor | Set motor mode ("PPM": position mode, "PVM": velocity mode) |
+| /start_erob | erob_master/srv/MotorID | Start motor ("node_id: 1") |
+| /stop_erob | erob_master/srv/MotorID | Stop motor ("node_id: 1") |
+| /reset_erob | erob_master/srv/MotorID | Reset motor ("node_id: 1") |
+| /set_erob_mode | erob_master/srv/ConfigureMotor | Set motor mode ("PPM": position mode, "PVM": velocity mode, "PTM": Torque mode) |
 | /set_erob_position | erob_master/srv/MoveMotorPPM | Set motor position ("{node_id: 1, target_position: 180.0}") |
 
 ## Parameter List

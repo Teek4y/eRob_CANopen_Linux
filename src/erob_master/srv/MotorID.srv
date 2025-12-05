@@ -1,5 +1,4 @@
 int32 node_id
-string operation_mode  
 ---
 bool success
 string message

@@ -14,6 +14,7 @@
 #include <std_srvs/srv/trigger.hpp>
 #include <std_srvs/srv/set_bool.hpp>
 #include <erob_master/srv/configure_motor.hpp>
+#include <erob_master/srv/motor_id.hpp>
 #include <erob_master/srv/move_motor_ppm.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 
@@ -223,11 +224,11 @@ public:
             "target_velocity", 10, std::bind(&CANopenROS2::velocity_callback, this, std::placeholders::_1));
         
         // 创建服务
-        start_service_ = this->create_service<erob_master::srv::ConfigureMotor>(
+        start_service_ = this->create_service<erob_master::srv::MotorID>(
             "start_erob", std::bind(&CANopenROS2::handle_start, this, std::placeholders::_1, std::placeholders::_2));
-        stop_service_ = this->create_service<erob_master::srv::ConfigureMotor>(
+        stop_service_ = this->create_service<erob_master::srv::MotorID>(
             "stop_erob", std::bind(&CANopenROS2::handle_stop, this, std::placeholders::_1, std::placeholders::_2));
-        reset_service_ = this->create_service<erob_master::srv::ConfigureMotor>(
+        reset_service_ = this->create_service<erob_master::srv::MotorID>(
             "reset_erob", std::bind(&CANopenROS2::handle_reset, this, std::placeholders::_1, std::placeholders::_2));
         set_mode_service_ = this->create_service<erob_master::srv::ConfigureMotor>(
             "set_erob_mode", std::bind(&CANopenROS2::handle_set_mode, this, std::placeholders::_1, std::placeholders::_2));
@@ -1685,9 +1686,9 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr position_sub_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr velocity_sub_;
 
-    rclcpp::Service<erob_master::srv::ConfigureMotor>::SharedPtr start_service_;
-    rclcpp::Service<erob_master::srv::ConfigureMotor>::SharedPtr stop_service_;
-    rclcpp::Service<erob_master::srv::ConfigureMotor>::SharedPtr reset_service_;
+    rclcpp::Service<erob_master::srv::MotorID>::SharedPtr start_service_;
+    rclcpp::Service<erob_master::srv::MotorID>::SharedPtr stop_service_;
+    rclcpp::Service<erob_master::srv::MotorID>::SharedPtr reset_service_;
     rclcpp::Service<erob_master::srv::ConfigureMotor>::SharedPtr set_mode_service_;
     rclcpp::Service<erob_master::srv::MoveMotorPPM>::SharedPtr set_position_service_;
 };
