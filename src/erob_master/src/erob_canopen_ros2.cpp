@@ -147,7 +147,7 @@ public:
         
         // 创建定时器，用于接收CAN帧
         receive_timer_ = this->create_wall_timer(
-            std::chrono::milliseconds(10),
+            std::chrono::milliseconds(5),
             std::bind(&CANopenROS2::receive_can_frames, this));
         
         
@@ -157,9 +157,9 @@ public:
             motor_config_[i].status_word = 0;
             motor_config_[i].status_enabled = 0;
             motor_config_[i].status_fault = 0;
-            motor_config_[i].velocity = 5.72;
-            motor_config_[i].acceleration_rpm2 = 1;//0.51
-            motor_config_[i].deceleration_rpm2 = 1;//0.51
+            motor_config_[i].velocity = 10; //5.72
+            motor_config_[i].acceleration_rpm2 = 34;//0.51
+            motor_config_[i].deceleration_rpm2 = 34;//0.51
             motor_config_[i].max_torque = 2.0;
         }
         motor_config_[0].rated_current = 18000;
@@ -219,7 +219,7 @@ public:
         
         // 创建订阅器
         position_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
-            "target_position", 10, std::bind(&CANopenROS2::position_callback, this, std::placeholders::_1));
+            "target_position", 1, std::bind(&CANopenROS2::position_callback, this, std::placeholders::_1));
         velocity_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
             "target_velocity", 10, std::bind(&CANopenROS2::velocity_callback, this, std::placeholders::_1));
         
@@ -968,14 +968,10 @@ private:
             RCLCPP_ERROR(this->get_logger(), "发送目标位置失败");
             return;
         }
-        // 先重置命令触发位（位4）
-        // set_control_word(node_id, CONTROL_ENABLE_OPERATION | CONTROL_NEW_SET_POINT_IMMEDIATE_2);
-        // std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-        // RCLCPP_INFO(this->get_logger(), "位置命令已通过PDO发送");
 
     }
 
+    
     void set_velocity_pdo(int node_id, float velocity)
     {
         RCLCPP_INFO(this->get_logger(), "通过PDO设置速度: %.2f°", velocity);
@@ -1003,14 +999,14 @@ private:
 
     }
 
-    /*
+    
     void set_torque_pdo(int node_id, float torque)
     {
-        RCLCPP_INFO(this->get_logger(), "通过PDO设置速度: %.2f°", torque);
+        RCLCPP_INFO(this->get_logger(), "通过PDO设置电流: %.2f°", torque);
         
         // int16_t hex = torque_to_hex(torque);
         int16_t hex = static_cast<int16_t>(torque * 1000.0 / static_cast<float>(motor_config_[node_id-1].rated_current));
-        RCLCPP_INFO(this->get_logger(), "目标速度脉冲值: %d", hex);
+        RCLCPP_INFO(this->get_logger(), "目标电流脉冲值: %d", hex);
         
         // 使用PDO发送目标速度
         struct can_frame frame;
@@ -1023,13 +1019,15 @@ private:
         
         if (write(can_socket_, &frame, sizeof(struct can_frame)) != sizeof(struct can_frame))
         {
-            RCLCPP_ERROR(this->get_logger(), "发送目标速度失败");
+            RCLCPP_ERROR(this->get_logger(), "发送目标电流失败");
             return;
         }
-        RCLCPP_INFO(this->get_logger(), "速度命令已通过PDO发送");
+        RCLCPP_INFO(this->get_logger(), "电流命令已通过PDO发送");
 
     }
-    */
+
+
+    
 
     void send_sync_frame()
     {
@@ -1124,6 +1122,7 @@ private:
     void receive_can_frames()
     {
         struct can_frame frame;
+        // auto start = this->now();
         ssize_t nbytes = read(can_socket_, &frame, sizeof(struct can_frame));
         
         if (nbytes < 0)
@@ -1139,10 +1138,10 @@ private:
         uint32_t cob_id = frame.can_id & 0x780;  // 提取功能码
         uint8_t node_id = frame.can_id & 0x7F;  // 提取节点ID
         
-        RCLCPP_DEBUG(this->get_logger(), "接收到CAN帧: ID=0x%03X, DLC=%d, Data=0x%02X%02X%02X%02X%02X%02X%02X%02X",
-            frame.can_id, frame.can_dlc,
-            frame.data[0], frame.data[1], frame.data[2], frame.data[3],
-            frame.data[4], frame.data[5], frame.data[6], frame.data[7]);
+        // RCLCPP_INFO(this->get_logger(), "接收到CAN帧: ID=0x%03X, DLC=%d, Data=0x%02X%02X%02X%02X%02X%02X%02X%02X",
+        //    frame.can_id, frame.can_dlc,
+        //    frame.data[0], frame.data[1], frame.data[2], frame.data[3],
+        //    frame.data[4], frame.data[5], frame.data[6], frame.data[7]);
         
         switch(cob_id){
             case COB_TSDO:{
@@ -1250,15 +1249,16 @@ private:
             }break;
             default:
                 return;
-
         }
+        // auto dt = (this->now() - start).seconds();
+        // std::cout<<"receive_can_frame dt is"<<dt*1000<<"ms"<<std::endl;
     }
     
     void publish_status()
     {
-        // 发布状态信息
-        auto status_msg = std_msgs::msg::String();
+        // auto start = this->now();
         
+        auto status_msg = std_msgs::msg::String();
         // 根据状态字解析状态
         std::string status_str = "未知";
         if (status_word_ & 0x0008)  // 故障
@@ -1294,8 +1294,15 @@ private:
         for (size_t i = 0; i < NUM_MOTORS; ++i) {
             joint_state_real.position.push_back(motor_config_[i].actual_position);
             joint_state_real.velocity.push_back(motor_config_[i].actual_velocity);
-            joint_state_real.effort.push_back(motor_config_[i].actual_torque);
+            // joint_state_real.effort.push_back(pulse_to_effort(motor_config_[i].actual_effort));
+            joint_state_real.effort.push_back(motor_config_[i].actual_current);
         }
+        
+        // auto dt = (this->now() - start).seconds();
+        // joint_state_real.header.frame_id = std::to_string(dt*1000) + "ms";
+        // std::cout<<"publish_status dt is"<<dt*1000<<"ms"<<std::endl;
+
+        // 发布状态信息
         position_pub_->publish(joint_state_real);
     }
     
@@ -1304,16 +1311,17 @@ private:
     // 回调函数：处理目标位置
     void position_callback(const sensor_msgs::msg::JointState::SharedPtr msg)
     {
+        // auto start = this->now();
         int node_id = 1;
         for (auto i : msg->position){
             // float angle = msg->position[node_id];
             // RCLCPP_INFO(this->get_logger(), "收到目标位置: %.2f°", i);
         
-            // // 添加更多调试信息
+            // 添加更多调试信息
             // RCLCPP_INFO(this->get_logger(), "当前CAN套接字: %d", can_socket_);
             // RCLCPP_INFO(this->get_logger(), "当前节点ID: %d", node_id);
             
-            // // 读取当前状态字
+            // 读取当前状态字
             // int32_t status_word = read_sdo(node_id, OD_STATUS_WORD, 0x00);
             // RCLCPP_INFO(this->get_logger(), "当前状态字: 0x%04X", status_word);
             
@@ -1324,6 +1332,8 @@ private:
             set_position_pdo(node_id, i);
             node_id++;
         }
+        // auto dt = (this->now() - start).seconds();
+        // std::cout<<"position_callback dt is"<<dt*1000<<"ms"<<std::endl;
     }
     
     // 回调函数：处理目标速度
