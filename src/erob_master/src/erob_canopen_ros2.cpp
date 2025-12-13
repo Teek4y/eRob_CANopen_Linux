@@ -213,9 +213,9 @@ public:
             std::bind(&CANopenROS2::get_temperature, this));
         
         // 创建发布器
-        status_pub_ = this->create_publisher<std_msgs::msg::String>("erob_status", 10);
-        position_pub_ = this->create_publisher<sensor_msgs::msg::JointState>("erob_joint_state_real", 10);
-        velocity_pub_ = this->create_publisher<sensor_msgs::msg::JointState>("erob_velocity", 10);
+        status_pub_ = this->create_publisher<std_msgs::msg::String>("erob_status", 1);
+        position_pub_ = this->create_publisher<sensor_msgs::msg::JointState>("erob_joint_state_real", 1);
+        velocity_pub_ = this->create_publisher<sensor_msgs::msg::JointState>("erob_velocity", 1);
         
         // 创建订阅器
         position_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
@@ -931,6 +931,8 @@ private:
     {
         RCLCPP_INFO(this->get_logger(), "通过PDO移动到位置: %.2f°", angle);
         
+
+
         int32_t position = angle_to_position(angle);
         RCLCPP_INFO(this->get_logger(), "目标位置脉冲值: %d", position);
         
