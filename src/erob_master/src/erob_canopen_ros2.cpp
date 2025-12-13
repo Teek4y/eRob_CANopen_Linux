@@ -213,7 +213,7 @@ public:
             std::bind(&CANopenROS2::get_temperature, this));
         
         // 创建发布器
-        status_pub_ = this->create_publisher<std_msgs::msg::String>("erob_status", 1);
+        status_pub_ = this->create_publisher<std_msgs::msg::String>("erob_status", 10);
         position_pub_ = this->create_publisher<sensor_msgs::msg::JointState>("erob_joint_state_real", 1);
         velocity_pub_ = this->create_publisher<sensor_msgs::msg::JointState>("erob_velocity", 1);
         
@@ -929,12 +929,19 @@ private:
 
     void set_position_pdo(int node_id, float angle)
     {
-        RCLCPP_INFO(this->get_logger(), "通过PDO移动到位置: %.2f°", angle);
+        // RCLCPP_INFO(this->get_logger(), "通过PDO移动到位置: %.2f°", angle);
         
-
+        // 7关节限位防止超限
+        if (node_id == 7){
+            if (angle > 330){
+                angle = 330;
+            }else if(angle < 100){
+                angle = 100;
+            }
+        }
 
         int32_t position = angle_to_position(angle);
-        RCLCPP_INFO(this->get_logger(), "目标位置脉冲值: %d", position);
+        // RCLCPP_INFO(this->get_logger(), "目标位置脉冲值: %d", position);
         
         // 使用PDO发送目标位置
         struct can_frame frame;
@@ -965,28 +972,27 @@ private:
         // set_control_word(node_id, CONTROL_ENABLE_OPERATION | CONTROL_NEW_SET_POINT_IMMEDIATE_2);
         // std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-        RCLCPP_INFO(this->get_logger(), "位置命令已通过PDO发送");
+        // RCLCPP_INFO(this->get_logger(), "位置命令已通过PDO发送");
 
     }
 
-    /*
     void set_velocity_pdo(int node_id, float velocity)
     {
         RCLCPP_INFO(this->get_logger(), "通过PDO设置速度: %.2f°", velocity);
         
-        int32_t pulse = velocity_to_pulse(velocity);
-        RCLCPP_INFO(this->get_logger(), "目标速度脉冲值: %d", pulse);
+        int32_t position = velocity_to_pulse(velocity);
+        RCLCPP_INFO(this->get_logger(), "目标速度脉冲值: %d", position);
         
         // 使用PDO发送目标速度
         struct can_frame frame;
         frame.can_id = COB_RPDO2 + node_id;
-        frame.can_dlc = 6;  // 控制字(2字节) + 目标速度(4字节)
+        frame.can_dlc = 6;  // 控制字(2字节) + 目标位置(4字节)
         frame.data[0] = CONTROL_ENABLE_OPERATION & 0xFF;  // 控制字低字节
         frame.data[1] = (CONTROL_ENABLE_OPERATION >> 8) & 0xFF;  // 控制字高字节
-        frame.data[2] = pulse & 0xFF;  // 目标速度低字节
-        frame.data[3] = (pulse >> 8) & 0xFF;
-        frame.data[4] = (pulse >> 16) & 0xFF;
-        frame.data[5] = (pulse >> 24) & 0xFF;  // 目标速度高字节
+        frame.data[2] = position & 0xFF;  // 目标速度低字节
+        frame.data[3] = (position >> 8) & 0xFF;
+        frame.data[4] = (position >> 16) & 0xFF;
+        frame.data[5] = (position >> 24) & 0xFF;  // 目标速度高字节
         
         if (write(can_socket_, &frame, sizeof(struct can_frame)) != sizeof(struct can_frame))
         {
@@ -997,6 +1003,7 @@ private:
 
     }
 
+    /*
     void set_torque_pdo(int node_id, float torque)
     {
         RCLCPP_INFO(this->get_logger(), "通过PDO设置速度: %.2f°", torque);
@@ -1300,19 +1307,19 @@ private:
         int node_id = 1;
         for (auto i : msg->position){
             // float angle = msg->position[node_id];
-            RCLCPP_INFO(this->get_logger(), "收到目标位置: %.2f°", i);
+            // RCLCPP_INFO(this->get_logger(), "收到目标位置: %.2f°", i);
         
-            // 添加更多调试信息
-            RCLCPP_INFO(this->get_logger(), "当前CAN套接字: %d", can_socket_);
-            RCLCPP_INFO(this->get_logger(), "当前节点ID: %d", node_id);
+            // // 添加更多调试信息
+            // RCLCPP_INFO(this->get_logger(), "当前CAN套接字: %d", can_socket_);
+            // RCLCPP_INFO(this->get_logger(), "当前节点ID: %d", node_id);
             
-            // 读取当前状态字
-            int32_t status_word = read_sdo(node_id, OD_STATUS_WORD, 0x00);
-            RCLCPP_INFO(this->get_logger(), "当前状态字: 0x%04X", status_word);
+            // // 读取当前状态字
+            // int32_t status_word = read_sdo(node_id, OD_STATUS_WORD, 0x00);
+            // RCLCPP_INFO(this->get_logger(), "当前状态字: 0x%04X", status_word);
             
-            // 读取当前操作模式
-            int32_t mode = read_sdo(node_id, OD_OPERATION_MODE_DISPLAY, 0x00);
-            RCLCPP_INFO(this->get_logger(), "当前操作模式: %d", mode);
+            // // 读取当前操作模式
+            // int32_t mode = read_sdo(node_id, OD_OPERATION_MODE_DISPLAY, 0x00);
+            // RCLCPP_INFO(this->get_logger(), "当前操作模式: %d", mode);
             // go_to_position(node_id, angle);
             set_position_pdo(node_id, i);
             node_id++;
@@ -1335,8 +1342,8 @@ private:
     }
     
     // 服务回调函数：启动
-    void handle_start(const std::shared_ptr<erob_master::srv::ConfigureMotor::Request> request,
-                     std::shared_ptr<erob_master::srv::ConfigureMotor::Response> response)
+    void handle_start(const std::shared_ptr<erob_master::srv::MotorID::Request> request,
+                     std::shared_ptr<erob_master::srv::MotorID::Response> response)
     {
         
         RCLCPP_INFO(this->get_logger(), "收到启动请求");
@@ -1355,8 +1362,8 @@ private:
     }
     
     // 服务回调函数：停止
-    void handle_stop(const std::shared_ptr<erob_master::srv::ConfigureMotor::Request> request,
-                    std::shared_ptr<erob_master::srv::ConfigureMotor::Response> response)
+    void handle_stop(const std::shared_ptr<erob_master::srv::MotorID::Request> request,
+                    std::shared_ptr<erob_master::srv::MotorID::Response> response)
     {
         RCLCPP_INFO(this->get_logger(), "收到停止请求");
         int node_id = request->node_id;
@@ -1374,8 +1381,8 @@ private:
     }
     
     // 服务回调函数：重置
-    void handle_reset(const std::shared_ptr<erob_master::srv::ConfigureMotor::Request> request,
-                     std::shared_ptr<erob_master::srv::ConfigureMotor::Response> response)
+    void handle_reset(const std::shared_ptr<erob_master::srv::MotorID::Request> request,
+                     std::shared_ptr<erob_master::srv::MotorID::Response> response)
     {
         RCLCPP_INFO(this->get_logger(), "收到重置请求");
         int node_id = request->node_id;
@@ -1599,58 +1606,6 @@ private:
         RCLCPP_INFO(this->get_logger(), "速度已设置: %.2f°/s (脉冲值: %d)", velocity_deg_per_sec, velocity_pulse);
     }
     
-    void set_velocity_pdo(int node_id, float velocity_deg_per_sec)
-    {
-        RCLCPP_INFO(this->get_logger(), "使用PDO设置速度: %.2f°/s", velocity_deg_per_sec);
-        
-        // 读取当前操作模式
-        int32_t mode = read_sdo(node_id, OD_OPERATION_MODE_DISPLAY, 0x00);
-        RCLCPP_INFO(this->get_logger(), "当前操作模式: %d", mode);
-        
-        // 设置轮廓速度参数（无论当前模式如何）
-        set_profile_velocity(node_id, static_cast<int32_t>(velocity_deg_per_sec));
-        
-        // 转换为电机内部单位
-        int32_t velocity_pulse = velocity_to_pulse(static_cast<int32_t>(velocity_deg_per_sec));
-        
-        // 方法1：使用SDO设置目标速度
-        write_sdo(node_id, 0x60FF, 0x00, velocity_pulse, 4);  // 0x60FF是目标速度对象
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        
-        // 方法2：使用SDO设置控制字
-        write_sdo(node_id, OD_CONTROL_WORD, 0x00, CONTROL_ENABLE_OPERATION, 2);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        
-        RCLCPP_INFO(this->get_logger(), "速度命令已发送");
-        
-        // 如果速度命令不起作用，尝试使用PDO
-        if (mode == 0)
-        {
-            RCLCPP_INFO(this->get_logger(), "在模式0下尝试使用PDO发送速度命令");
-            
-            // 使用PDO发送速度命令
-            struct can_frame frame;
-            frame.can_id = COB_RPDO1 + node_id;
-            frame.can_dlc = 6;  // 控制字(2字节) + 目标速度(4字节)
-            frame.data[0] = CONTROL_ENABLE_OPERATION & 0xFF;  // 控制字低字节
-            frame.data[1] = (CONTROL_ENABLE_OPERATION >> 8) & 0xFF;  // 控制字高字节
-            frame.data[2] = velocity_pulse & 0xFF;  // 速度低字节
-            frame.data[3] = (velocity_pulse >> 8) & 0xFF;
-            frame.data[4] = (velocity_pulse >> 16) & 0xFF;
-            frame.data[5] = (velocity_pulse >> 24) & 0xFF;  // 速度高字节
-            
-            if (write(can_socket_, &frame, sizeof(struct can_frame)) != sizeof(struct can_frame))
-            {
-                RCLCPP_ERROR(this->get_logger(), "发送PDO速度命令失败");
-            }
-            else
-            {
-                RCLCPP_INFO(this->get_logger(), "PDO速度命令已发送");
-            }
-            
-            send_sync_frame();
-        }
-    }
     
     void get_rated_current(int node_id){
         read_sdo(node_id, OD_RATED_CURRENT, 0x00);
