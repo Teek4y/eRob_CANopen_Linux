@@ -162,13 +162,13 @@ public:
             motor_config_[i].deceleration_rpm2 = 1;//0.51
             motor_config_[i].max_torque = 2.0;
         }
-        motor_config_[0].rated_current = 18000;
-        motor_config_[1].rated_current = 18000;
-        motor_config_[2].rated_current = 5100;
-        motor_config_[3].rated_current = 6300;
-        motor_config_[4].rated_current = 6300;
-        motor_config_[5].rated_current = 6300;
-        motor_config_[6].rated_current = 5400;
+        motor_config_[0].rated_current = 18000; // eRob90H100I-BM-18CN(V3)
+        motor_config_[1].rated_current = 18000; // eRob90H100I-BM-18CN(V3)
+        motor_config_[2].rated_current = 5100; // eRob80H100I-BM-18CN(V6)
+        motor_config_[3].rated_current = 6300; // eRob80H100I-BM-18CN(V6)
+        motor_config_[4].rated_current = 6300; // eRob80H100I-BM-18CN(V6)
+        motor_config_[5].rated_current = 6300; // eRob80H100I-BM-18CN(V6)
+        motor_config_[6].rated_current = 5400; // eRob70H100I-BM-18CN(V5)
 
         motor_config_[0].rated_torque = 52000;
         motor_config_[1].rated_torque = 52000;
@@ -178,13 +178,13 @@ public:
         motor_config_[5].rated_torque = 31000;
         motor_config_[6].rated_torque = 10000;
 
-        motor_config_[0].torque_constant = 52000;
-        motor_config_[1].torque_constant = 52000;
-        motor_config_[2].torque_constant = 31000;
-        motor_config_[3].torque_constant = 31000;
-        motor_config_[4].torque_constant = 31000;
-        motor_config_[5].torque_constant = 31000;
-        motor_config_[6].torque_constant = 10000;
+        motor_config_[0].torque_constant = 0.132;
+        motor_config_[1].torque_constant = 0.132;
+        motor_config_[2].torque_constant = 0.126;
+        motor_config_[3].torque_constant = 0.126;
+        motor_config_[4].torque_constant = 0.126;
+        motor_config_[5].torque_constant = 0.126;
+        motor_config_[6].torque_constant = 0.132;
 
         RCLCPP_INFO(this->get_logger(), "初始化Simple eRob Control，CAN接口=%s", 
                 can_interface_.c_str());
@@ -460,21 +460,13 @@ private:
         write_sdo(node_id, 0x1A01, 0x00, 0x00, 1);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
         
-        // // 4. 设置映射对象：状态字
+        // 4. 设置映射对象：状态字
         write_sdo(node_id, 0x1A01, 0x01, 0x60410010, 4);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        
-        // 5.1 设置映射对象：实际位置
-        // write_sdo(node_id, 0x1A01, 0x01, 0x60640020, 4);
-        // std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
         // 5. 设置映射对象：实际速度
         write_sdo(node_id, 0x1A01, 0x02, 0x606C0020, 4);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
-
-        // 5.2 设置映射对象：实际电流
-        // write_sdo(node_id, 0x1A01, 0x02, 0x60780010, 4);
-        // std::this_thread::sleep_for(std::chrono::milliseconds(10));
         
         // 6. 设置TxPDO2映射对象数量为2
         write_sdo(node_id, 0x1A01, 0x00, 0x02, 1);
@@ -1002,8 +994,7 @@ private:
         RCLCPP_INFO(this->get_logger(), "速度命令已通过PDO发送");
 
     }
-
-    /*
+ 
     void set_torque_pdo(int node_id, float torque)
     {
         RCLCPP_INFO(this->get_logger(), "通过PDO设置速度: %.2f°", torque);
@@ -1029,7 +1020,6 @@ private:
         RCLCPP_INFO(this->get_logger(), "速度命令已通过PDO发送");
 
     }
-    */
 
     void send_sync_frame()
     {
@@ -1139,10 +1129,10 @@ private:
         uint32_t cob_id = frame.can_id & 0x780;  // 提取功能码
         uint8_t node_id = frame.can_id & 0x7F;  // 提取节点ID
         
-        RCLCPP_DEBUG(this->get_logger(), "接收到CAN帧: ID=0x%03X, DLC=%d, Data=0x%02X%02X%02X%02X%02X%02X%02X%02X",
-            frame.can_id, frame.can_dlc,
-            frame.data[0], frame.data[1], frame.data[2], frame.data[3],
-            frame.data[4], frame.data[5], frame.data[6], frame.data[7]);
+        // RCLCPP_DEBUG(this->get_logger(), "接收到CAN帧: ID=0x%03X, DLC=%d, Data=0x%02X%02X%02X%02X%02X%02X%02X%02X",
+        //     frame.can_id, frame.can_dlc,
+        //     frame.data[0], frame.data[1], frame.data[2], frame.data[3],
+        //     frame.data[4], frame.data[5], frame.data[6], frame.data[7]);
         
         switch(cob_id){
             case COB_TSDO:{
@@ -1177,10 +1167,6 @@ private:
                     int32_t position = frame.data[4] | (frame.data[5] << 8) | (frame.data[6] << 16) | (frame.data[7] << 24);
                     float angle = position_to_angle(position);
                     motor_config_[node_id-1].actual_position = angle;
-                    // // 发布位置
-                    // auto msg = std_msgs::msg::Float32();
-                    // msg.data = angle;
-                    // position_pub_->publish(msg);
                 }
                 else if (index == OD_RATED_CURRENT && subindex == 0x00)  // 额定电流
                 {
@@ -1209,7 +1195,6 @@ private:
                     uint16_t status_word = frame.data[0] | (frame.data[1] << 8);
                     int32_t position = frame.data[2] | (frame.data[3] << 8) | (frame.data[4] << 16) | (frame.data[5] << 24);
                     int16_t current = frame.data[6] | (frame.data[7] << 8);
-                    // int16_t current = frame.data[2] | (frame.data[3] << 8);
 
                     float angle = position_to_angle(position);
                     motor_config_[node_id-1].actual_position = angle;
@@ -1227,11 +1212,8 @@ private:
                 if (frame.can_dlc >= 6)  // 状态字(2字节) + 实际速度(4字节)
                 {
                     uint16_t status_word = frame.data[0] | (frame.data[1] << 8);
-                    // int32_t position = frame.data[0] | (frame.data[1] << 8) | (frame.data[2] << 16) | (frame.data[3] << 24);
                     int32_t velocity_pulse = frame.data[2] | (frame.data[3] << 8) | (frame.data[4] << 16) | (frame.data[5] << 24);
 
-                    // float angle = position_to_angle(position);
-                    // motor_config_[node_id-1].actual_position = angle;
                     float velocity = pulse_to_velocity(velocity_pulse);
                     motor_config_[node_id-1].actual_velocity = velocity;
 
