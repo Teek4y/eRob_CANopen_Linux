@@ -151,7 +151,7 @@ public:
         
         // 创建定时器，用于接收CAN帧
         receive_timer_ = this->create_wall_timer(
-            std::chrono::milliseconds(5),
+            std::chrono::milliseconds(1),
             std::bind(&CANopenROS2::receive_can_frames, this));
         
         
@@ -219,15 +219,14 @@ public:
             std::chrono::milliseconds(10),
             std::bind(&CANopenROS2::send_sync_frame, this));
         // 创建发布器
-        status_pub_ = this->create_publisher<std_msgs::msg::String>("erob_status", 10);
+        status_pub_ = this->create_publisher<std_msgs::msg::String>("erob_status", 1);
         position_pub_ = this->create_publisher<sensor_msgs::msg::JointState>("erob_joint_state_real", 1);
-        velocity_pub_ = this->create_publisher<sensor_msgs::msg::JointState>("erob_velocity", 1);
         
         // 创建订阅器
         position_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
             "target_position", 1, std::bind(&CANopenROS2::position_callback, this, std::placeholders::_1));
         velocity_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
-            "target_velocity", 10, std::bind(&CANopenROS2::velocity_callback, this, std::placeholders::_1));
+            "target_velocity", 1, std::bind(&CANopenROS2::velocity_callback, this, std::placeholders::_1));
         
         // 创建服务
         start_service_ = this->create_service<erob_master::srv::MotorID>(
@@ -433,13 +432,9 @@ private:
         // 5.1 设置映射对象：实际位置
         write_sdo(node_id, 0x1A00, 0x02, 0x60640020, 4);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
-
-        // 5.2 设置映射对象：实际电流
-        write_sdo(node_id, 0x1A00, 0x03, 0x60780010, 4);
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
         
-        // 6. 设置TxPDO1映射对象数量为3
-        write_sdo(node_id, 0x1A00, 0x00, 0x03, 1);
+        // 6. 设置TxPDO1映射对象数量为2
+        write_sdo(node_id, 0x1A00, 0x00, 0x02, 1);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
         // 7. 设置传输类型并启用TxPDO1
@@ -465,9 +460,9 @@ private:
         // 3. 清除TxPDO2映射
         write_sdo(node_id, 0x1A01, 0x00, 0x00, 1);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        
-        // 4. 设置映射对象：状态字
-        write_sdo(node_id, 0x1A01, 0x01, 0x60410010, 4);
+
+        // // 4. 设置映射对象：实际电流
+        write_sdo(node_id, 0x1A01, 0x01, 0x60780010, 4);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
         // 5. 设置映射对象：实际速度
@@ -1192,16 +1187,19 @@ private:
             
             case COB_TPDO1:{
                 // 处理TPDO1响应
-                if (frame.can_dlc >= 8)  // 状态字(2字节) + 实际位置(4字节) + 实际电流(2字节)
+                if (frame.can_dlc >= 6)  // 状态字(2字节) + 实际速度(4字节)
                 {
                     uint16_t status_word = frame.data[0] | (frame.data[1] << 8);
                     int32_t position = frame.data[2] | (frame.data[3] << 8) | (frame.data[4] << 16) | (frame.data[5] << 24);
-                    int16_t current = frame.data[6] | (frame.data[7] << 8);
+                    // int32_t velocity_pulse = frame.data[2] | (frame.data[3] << 8) | (frame.data[4] << 16) | (frame.data[5] << 24);
+                    
 
                     float angle = position_to_angle(position);
                     motor_config_[node_id-1].actual_position = angle;
-                    motor_config_[node_id-1].actual_current = current * static_cast<int>(motor_config_[node_id-1].rated_current) * 0.001; // 转换为mA
-                    motor_config_[node_id-1].actual_torque = motor_config_[node_id-1].torque_constant * motor_config_[node_id-1].vel_ratio * motor_config_[node_id-1].efficiency * motor_config_[node_id-1].actual_current;
+                    // float velocity = pulse_to_velocity(velocity_pulse);
+                    // motor_config_[node_id-1].actual_velocity = velocity;
+                    // motor_config_[node_id-1].actual_current = current * static_cast<int>(motor_config_[node_id-1].rated_current) * 0.001; // 转换为mA
+                    // motor_config_[node_id-1].actual_torque = motor_config_[node_id-1].torque_constant * motor_config_[node_id-1].vel_ratio * motor_config_[node_id-1].efficiency * motor_config_[node_id-1].actual_current;
                     // 检查目标到达位
                     if (status_word & 0x0400)
                     {
@@ -1211,19 +1209,20 @@ private:
             }break;
             case COB_TPDO2:{
                 // 处理TPDO2响应
-                if (frame.can_dlc >= 6)  // 状态字(2字节) + 实际速度(4字节)
+                // RCLCPP_INFO(this->get_logger(), "收到TPDO2数据，DLC=%d", frame.can_dlc);
+                if (frame.can_dlc >= 6)  // 实际电流(2字节) + 实际速度(4字节)
                 {
-                    uint16_t status_word = frame.data[0] | (frame.data[1] << 8);
+                    // uint16_t status_word = frame.data[0] | (frame.data[1] << 8);
+                    int16_t current = frame.data[0] | (frame.data[1] << 8);
+                    // int32_t position = frame.data[2] | (frame.data[3] << 8) | (frame.data[4] << 16) | (frame.data[5] << 24);
                     int32_t velocity_pulse = frame.data[2] | (frame.data[3] << 8) | (frame.data[4] << 16) | (frame.data[5] << 24);
 
+                    // float angle = position_to_angle(position);
+                    // motor_config_[node_id-1].actual_position = angle;
+                    motor_config_[node_id-1].actual_current = current * static_cast<int>(motor_config_[node_id-1].rated_current) * 0.001; // 转换为mA
+                    motor_config_[node_id-1].actual_torque = motor_config_[node_id-1].torque_constant * motor_config_[node_id-1].vel_ratio * motor_config_[node_id-1].efficiency * motor_config_[node_id-1].actual_current;
                     float velocity = pulse_to_velocity(velocity_pulse);
                     motor_config_[node_id-1].actual_velocity = velocity;
-
-                    // 检查目标到达位
-                    if (status_word & 0x0400)
-                    {
-                        // RCLCPP_INFO(this->get_logger(), "目标位置已到达");
-                    }
                 }
             }break;
             case COB_TPDO3:{
@@ -1631,7 +1630,6 @@ private:
     rclcpp::TimerBase::SharedPtr temeprature_timer_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr position_pub_;
-    rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr velocity_pub_;
 
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr position_sub_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr velocity_sub_;
