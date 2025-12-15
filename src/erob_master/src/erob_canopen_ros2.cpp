@@ -161,9 +161,9 @@ public:
             motor_config_[i].status_word = 0;
             motor_config_[i].status_enabled = 0;
             motor_config_[i].status_fault = 0;
-            motor_config_[i].velocity = 10; //5.72
-            motor_config_[i].acceleration_rpm2 = 34;//0.51
-            motor_config_[i].deceleration_rpm2 = 34;//0.51
+            motor_config_[i].velocity = 30; //5.72
+            motor_config_[i].acceleration_rpm2 = 100;//0.51
+            motor_config_[i].deceleration_rpm2 = 100;//0.51
             motor_config_[i].max_torque = 2.0;
             motor_config_[i].vel_ratio = 100;
             motor_config_[i].efficiency = 0.60;
@@ -926,11 +926,12 @@ private:
         
         // 7关节限位防止超限
         if (node_id == 7){
-            if (angle > 330){
-                angle = 330;
-            }else if(angle < 100){
-                angle = 100;
-            }
+            return;
+            // if (angle > 330){
+            //     angle = 330;
+            // }else if(angle < 100){
+            //     angle = 100;
+            // }
         }
 
         int32_t position = angle_to_position(angle);
@@ -1549,6 +1550,7 @@ private:
         // 获取额定电流和额定力矩
         get_rated_current(node_id);
         get_rated_torque(node_id);
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
         // 初始化节点
         initialize_node(motor_config_[node_id-1]);
         
