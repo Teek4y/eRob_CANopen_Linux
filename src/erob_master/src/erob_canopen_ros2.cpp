@@ -100,17 +100,21 @@
 
 #define NUM_MOTORS 7
 
+
+
 struct MotorConfig{
     int node_id;
     int operation_mode;
     uint16_t status_word;
     bool status_enabled;
     bool status_fault;
-
+    
     float actual_position;
     float actual_velocity;
     float actual_torque;
-    float torque_constant;
+    float torque_constant; // 扭矩常数
+    float vel_ratio; // 速比
+    float efficiency; // 传动效率
     //actual_torque = torque_constant * vel_ratio * efficiency * actual_current
     float actual_current;
 
@@ -161,6 +165,8 @@ public:
             motor_config_[i].acceleration_rpm2 = 34;//0.51
             motor_config_[i].deceleration_rpm2 = 34;//0.51
             motor_config_[i].max_torque = 2.0;
+            motor_config_[i].vel_ratio = 100;
+            motor_config_[i].efficiency = 0.60;
         }
         motor_config_[0].rated_current = 18000;
         motor_config_[1].rated_current = 18000;
@@ -178,29 +184,26 @@ public:
         motor_config_[5].rated_torque = 31000;
         motor_config_[6].rated_torque = 10000;
 
-        motor_config_[0].torque_constant = 52000;
-        motor_config_[1].torque_constant = 52000;
-        motor_config_[2].torque_constant = 31000;
-        motor_config_[3].torque_constant = 31000;
-        motor_config_[4].torque_constant = 31000;
-        motor_config_[5].torque_constant = 31000;
-        motor_config_[6].torque_constant = 10000;
+        motor_config_[0].torque_constant = 0.132;
+        motor_config_[1].torque_constant = 0.132;
+        motor_config_[2].torque_constant = 0.126;
+        motor_config_[3].torque_constant = 0.126;
+        motor_config_[4].torque_constant = 0.126;
+        motor_config_[5].torque_constant = 0.126;
+        motor_config_[6].torque_constant = 0.132;
 
         RCLCPP_INFO(this->get_logger(), "初始化Simple eRob Control，CAN接口=%s", 
                 can_interface_.c_str());
 
 
         for (int i = 0; i< NUM_MOTORS; i++){
-
             // RCLCPP_INFO(this->get_logger(), "初始化Simple eRob Control，CAN接口=%s，节点ID=%d", 
             //         can_interface_.c_str(), i+1);
             // 初始化节点
             initialize_motor(motor_config_[i].node_id);
         }
 
-        // sync_timer_ = this->create_wall_timer(
-        //     std::chrono::milliseconds(10),
-        //     std::bind(&CANopenROS2::send_sync_frame, this));
+
         
         // 创建状态发布定时器
         status_timer_ = this->create_wall_timer(
@@ -208,10 +211,13 @@ public:
             std::bind(&CANopenROS2::publish_status, this));
         
         // 创建温度获取定时器
-        temeprature_timer_ = this->create_wall_timer(
-            std::chrono::milliseconds(1000),
-            std::bind(&CANopenROS2::get_temperature, this));
+        // temeprature_timer_ = this->create_wall_timer(
+        //     std::chrono::milliseconds(1000),
+        //     std::bind(&CANopenROS2::get_temperature, this));
         
+        sync_timer_ = this->create_wall_timer(
+            std::chrono::milliseconds(10),
+            std::bind(&CANopenROS2::send_sync_frame, this));
         // 创建发布器
         status_pub_ = this->create_publisher<std_msgs::msg::String>("erob_status", 10);
         position_pub_ = this->create_publisher<sensor_msgs::msg::JointState>("erob_joint_state_real", 1);
@@ -437,7 +443,7 @@ private:
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
         // 7. 设置传输类型并启用TxPDO1
-        write_sdo(node_id, 0x1800, 0x02, 0xFF, 1);
+        write_sdo(node_id, 0x1800, 0x02, 0x00, 1);
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         write_sdo(node_id, 0x1800, 0x01, txpdo1_cob_id, 4);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -463,25 +469,17 @@ private:
         // // 4. 设置映射对象：状态字
         write_sdo(node_id, 0x1A01, 0x01, 0x60410010, 4);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        
-        // 5.1 设置映射对象：实际位置
-        // write_sdo(node_id, 0x1A01, 0x01, 0x60640020, 4);
-        // std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
         // 5. 设置映射对象：实际速度
         write_sdo(node_id, 0x1A01, 0x02, 0x606C0020, 4);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
-
-        // 5.2 设置映射对象：实际电流
-        // write_sdo(node_id, 0x1A01, 0x02, 0x60780010, 4);
-        // std::this_thread::sleep_for(std::chrono::milliseconds(10));
         
         // 6. 设置TxPDO2映射对象数量为2
         write_sdo(node_id, 0x1A01, 0x00, 0x02, 1);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
         // 7. 设置传输类型并启用TxPDO2
-        write_sdo(node_id, 0x1801, 0x02, 0xFF, 1);
+        write_sdo(node_id, 0x1801, 0x02, 0x00, 1);
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         write_sdo(node_id, 0x1801, 0x01, txpdo2_cob_id, 4);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -970,7 +968,6 @@ private:
         }
 
     }
-
     
     void set_velocity_pdo(int node_id, float velocity)
     {
@@ -999,7 +996,6 @@ private:
 
     }
 
-    
     void set_torque_pdo(int node_id, float torque)
     {
         RCLCPP_INFO(this->get_logger(), "通过PDO设置电流: %.2f°", torque);
@@ -1025,9 +1021,6 @@ private:
         RCLCPP_INFO(this->get_logger(), "电流命令已通过PDO发送");
 
     }
-
-
-    
 
     void send_sync_frame()
     {
@@ -1197,7 +1190,7 @@ private:
                 {
                     int16_t temprature = frame.data[4] | (frame.data[5] << 8);
                     motor_config_[node_id-1].temprature = temprature;
-                    ROS_INFO(this->get_logger(), "电机id: %d 温度: %d °", node_id, motor_config_[node_id-1].temprature);
+                    RCLCPP_INFO(this->get_logger(), "电机id: %d 温度: %d °", node_id, motor_config_[node_id-1].temprature);
                 }
             }break;
             
@@ -1208,12 +1201,11 @@ private:
                     uint16_t status_word = frame.data[0] | (frame.data[1] << 8);
                     int32_t position = frame.data[2] | (frame.data[3] << 8) | (frame.data[4] << 16) | (frame.data[5] << 24);
                     int16_t current = frame.data[6] | (frame.data[7] << 8);
-                    // int16_t current = frame.data[2] | (frame.data[3] << 8);
 
                     float angle = position_to_angle(position);
                     motor_config_[node_id-1].actual_position = angle;
                     motor_config_[node_id-1].actual_current = current * static_cast<int>(motor_config_[node_id-1].rated_current) * 0.001; // 转换为mA
-                    motor_config_[node_id-1].actual_torque = motor_config_[i].torque_constant * vel_ratio * efficiency * motor_config_[i].actual_current;
+                    motor_config_[node_id-1].actual_torque = motor_config_[node_id-1].torque_constant * motor_config_[node_id-1].vel_ratio * motor_config_[node_id-1].efficiency * motor_config_[node_id-1].actual_current;
                     // 检查目标到达位
                     if (status_word & 0x0400)
                     {
@@ -1307,7 +1299,7 @@ private:
     }
     
 // 各类回调函数
-{
+
     // 回调函数：处理目标位置
     void position_callback(const sensor_msgs::msg::JointState::SharedPtr msg)
     {
@@ -1511,10 +1503,10 @@ private:
             response->message = "停止失败: " + std::string(e.what());
         }
     }
-}
+
 
     // 各类辅助函数
-{
+
     // 辅助函数：角度转位置脉冲
     int32_t angle_to_position(float angle)
     {
@@ -1558,7 +1550,6 @@ private:
         return acceleration_pulse_per_sec2;
     }
 
-}
 
 
     void initialize_motor(int node_id)
@@ -1615,7 +1606,6 @@ private:
         
         RCLCPP_INFO(this->get_logger(), "速度已设置: %.2f°/s (脉冲值: %d)", velocity_deg_per_sec, velocity_pulse);
     }
-    
     
     void get_rated_current(int node_id){
         read_sdo(node_id, OD_RATED_CURRENT, 0x00);

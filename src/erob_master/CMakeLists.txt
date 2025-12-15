@@ -29,6 +29,7 @@ include_directories(
 set(srv_files
   "srv/ConfigureMotor.srv"
   "srv/MoveMotorPPM.srv"
+  "srv/MotorID.srv"
 )
 rosidl_generate_interfaces(${PROJECT_NAME}
   ${srv_files}
