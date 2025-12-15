@@ -189,6 +189,13 @@ ros2 service call /set_erob_mode erob_master/srv/ConfigureMotor "{node_id: 1, op
 ros2 service call /set_erob_mode erob_master/srv/ConfigureMotor "{node_id: 2, operation_mode: PVM}"
 ```
 
+## Setting Motor Mode
+
+- Set to position mode
+
+```bash
+ros2 service call /set_erob_position erob_master/srv/MoveMotorPPM "{node_id: 6, target_position: 180}"
+```
 
 ## Monitor Motor Status（不可用）
 
