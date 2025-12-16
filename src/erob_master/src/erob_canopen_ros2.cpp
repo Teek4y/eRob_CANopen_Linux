@@ -15,7 +15,7 @@
 #include <std_srvs/srv/set_bool.hpp>
 #include <erob_master/srv/configure_motor.hpp>
 #include <erob_master/srv/motor_id.hpp>
-#include <erob_master/srv/move_motor_ppm.hpp>
+#include <erob_master/srv/move_motor.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 
 // CANopen COB-ID基础值
@@ -112,6 +112,7 @@ struct MotorConfig{
     float actual_position;
     float actual_velocity;
     float actual_torque;
+    
     float torque_constant; // 扭矩常数
     float vel_ratio; // 速比
     float efficiency; // 传动效率
@@ -125,6 +126,7 @@ struct MotorConfig{
     float max_velocity;
     float max_torque;
 
+    // 轮廓速度、加减速度
     float velocity;
     float acceleration_rpm2;
     float deceleration_rpm2;
@@ -151,7 +153,7 @@ public:
         
         // 创建定时器，用于接收CAN帧
         receive_timer_ = this->create_wall_timer(
-            std::chrono::milliseconds(1),
+            std::chrono::microseconds(500),
             std::bind(&CANopenROS2::receive_can_frames, this));
         
         
@@ -227,6 +229,8 @@ public:
             "target_position", 1, std::bind(&CANopenROS2::position_callback, this, std::placeholders::_1));
         velocity_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
             "target_velocity", 1, std::bind(&CANopenROS2::velocity_callback, this, std::placeholders::_1));
+        effort_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
+            "target_effort", 1, std::bind(&CANopenROS2::effort_callback, this, std::placeholders::_1));
         
         // 创建服务
         start_service_ = this->create_service<erob_master::srv::MotorID>(
@@ -237,8 +241,12 @@ public:
             "reset_erob", std::bind(&CANopenROS2::handle_reset, this, std::placeholders::_1, std::placeholders::_2));
         set_mode_service_ = this->create_service<erob_master::srv::ConfigureMotor>(
             "set_erob_mode", std::bind(&CANopenROS2::handle_set_mode, this, std::placeholders::_1, std::placeholders::_2));
-        set_position_service_ = this->create_service<erob_master::srv::MoveMotorPPM>(
+        set_position_service_ = this->create_service<erob_master::srv::MoveMotor>(
             "set_erob_position", std::bind(&CANopenROS2::handle_set_position, this, std::placeholders::_1, std::placeholders::_2));
+        set_velocity_service_ = this->create_service<erob_master::srv::MoveMotor>(
+            "set_erob_velocity", std::bind(&CANopenROS2::handle_set_velocity, this, std::placeholders::_1, std::placeholders::_2));
+        set_effort_service_ = this->create_service<erob_master::srv::MoveMotor>(
+            "set_erob_effort", std::bind(&CANopenROS2::handle_set_effort, this, std::placeholders::_1, std::placeholders::_2));
     }
     
     ~CANopenROS2()
@@ -1003,7 +1011,7 @@ private:
         // 使用PDO发送目标速度
         struct can_frame frame;
         frame.can_id = COB_RPDO3 + node_id;
-        frame.can_dlc = 6;  // 控制字(2字节) + 目标电流(2字节)
+        frame.can_dlc = 4;  // 控制字(2字节) + 目标电流(2字节)
         frame.data[0] = CONTROL_ENABLE_OPERATION & 0xFF;  // 控制字低字节
         frame.data[1] = (CONTROL_ENABLE_OPERATION >> 8) & 0xFF;  // 控制字高字节
         frame.data[2] = hex & 0xFF;  // 目标电流低字节
@@ -1335,6 +1343,21 @@ private:
         }
         
     }
+
+    // 回调函数：处理目标速度
+    void effort_callback(const sensor_msgs::msg::JointState::SharedPtr msg)
+    {   
+        int node_id = 1;
+        for(auto i : msg->effort){
+            // float velocity = msg->velocity[node_id];
+            RCLCPP_INFO(this->get_logger(), "收到目标电流: %.2f°/s", i);
+            
+            // 尝试使用PDO设置速度
+            set_torque_pdo(node_id,i);
+            node_id++;
+        }
+        
+    }
     
     // 服务回调函数：启动
     void handle_start(const std::shared_ptr<erob_master::srv::MotorID::Request> request,
@@ -1416,7 +1439,7 @@ private:
             // 无论当前模式如何，都设置相应的参数
             if(request->operation_mode == "PPM"){
                 // 设置位置模式参数
-                set_profile_parameters(node_id, 5.72, 0.51, 0.51);
+                set_profile_parameters(node_id, motor_config_[node_id-1].velocity, motor_config_[node_id-1].acceleration_rpm2, motor_config_[node_id-1].deceleration_rpm2);
                 
                 // 设置目标位置为当前位置，防止电机立即运动
                 int32_t current_position = read_sdo(node_id, OD_ACTUAL_POSITION, 0x00);
@@ -1424,14 +1447,14 @@ private:
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 
                 write_sdo(node_id, OD_OPERATION_MODE, 0x00, MODE_PROFILE_POSITION, 1);
-                mode = read_sdo(node_id, OD_OPERATION_MODE_DISPLAY, 0x00);
-                if (mode == MODE_PROFILE_POSITION){
-                    response->message = "已设置位置模式参数";
-                }else{
-                    response->message = "设置位置模式失败，当前模式: " + std::to_string(mode);
-                }
-                
-            }else if(request->operation_mode == "PVM"){
+                // mode = read_sdo(node_id, OD_OPERATION_MODE_DISPLAY, 0x00);
+                // if (mode == MODE_PROFILE_POSITION){
+                //     response->message = "已设置位置模式参数";
+                // }else{
+                //     response->message = "设置位置模式失败，当前模式: " + std::to_string(mode);
+                // }
+            }
+            else if(request->operation_mode == "PVM"){
                 // 设置速度模式参数
                 set_profile_velocity(node_id, 5);  // 默认速度
                 
@@ -1442,12 +1465,12 @@ private:
                 response->message = "已设置速度模式参数";
 
                 write_sdo(node_id, OD_OPERATION_MODE, 0x00, MODE_PROFILE_VELOCITY, 1);
-                mode = read_sdo(node_id, OD_OPERATION_MODE_DISPLAY, 0x00);
-                if (mode == MODE_PROFILE_VELOCITY){
-                    response->message = "已设置速度模式参数";
-                }else{
-                    response->message = "设置速度模式失败，当前模式: " + std::to_string(mode);
-                }
+                // mode = read_sdo(node_id, OD_OPERATION_MODE_DISPLAY, 0x00);
+                // if (mode == MODE_PROFILE_VELOCITY){
+                //     response->message = "已设置速度模式参数";
+                // }else{
+                //     response->message = "设置速度模式失败，当前模式: " + std::to_string(mode);
+                // }
             }
             else if(request->operation_mode == "PTM"){
                 // 设置扭矩模式参数（如果需要）
@@ -1458,13 +1481,14 @@ private:
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
                 write_sdo(node_id, OD_OPERATION_MODE, 0x00, MODE_PROFILE_TORQUE, 1);
-                mode = read_sdo(node_id, OD_OPERATION_MODE_DISPLAY, 0x00);
-                if (mode == MODE_PROFILE_TORQUE){
-                    response->message = "已设置扭矩模式参数";
-                }else{
-                    response->message = "设置扭矩模式失败，当前模式: " + std::to_string(mode);
-                }  
-            }else{
+                // mode = read_sdo(node_id, OD_OPERATION_MODE_DISPLAY, 0x00);
+                // if (mode == MODE_PROFILE_TORQUE){
+                //     response->message = "已设置扭矩模式参数";
+                // }else{
+                //     response->message = "设置扭矩模式失败，当前模式: " + std::to_string(mode);
+                // }  
+            }
+            else{
                 throw std::runtime_error("未知的操作模式: " + request->operation_mode);
             }
             
@@ -1478,17 +1502,57 @@ private:
     }
     
     // 服务回调函数：设置位置
-    void handle_set_position(const std::shared_ptr<erob_master::srv::MoveMotorPPM::Request> request,
-                    std::shared_ptr<erob_master::srv::MoveMotorPPM::Response> response)
+    void handle_set_position(const std::shared_ptr<erob_master::srv::MoveMotor::Request> request,
+                    std::shared_ptr<erob_master::srv::MoveMotor::Response> response)
     {
         RCLCPP_INFO(this->get_logger(), "收到停止请求");
         int node_id = request->node_id;
-        float position = request->target_position;
+        float position = request->target;
         try
         {
             set_position_pdo(node_id, position);
             response->success = true;
-            response->message = "EROB电机已停止";
+            response->message = "电机位置已设置";
+        }
+        catch (const std::exception& e)
+        {
+            response->success = false;
+            response->message = "停止失败: " + std::string(e.what());
+        }
+    }
+
+    // 服务回调函数：设置速度
+    void handle_set_velocity(const std::shared_ptr<erob_master::srv::MoveMotor::Request> request,
+                    std::shared_ptr<erob_master::srv::MoveMotor::Response> response)
+    {
+        RCLCPP_INFO(this->get_logger(), "收到停止请求");
+        int node_id = request->node_id;
+        float position = request->target;
+        try
+        {
+            set_velocity_pdo(node_id, position);
+            response->success = true;
+            response->message = "电机速度已设置";
+        }
+        catch (const std::exception& e)
+        {
+            response->success = false;
+            response->message = "停止失败: " + std::string(e.what());
+        }
+    }
+
+    // 服务回调函数：设置电流
+    void handle_set_effort(const std::shared_ptr<erob_master::srv::MoveMotor::Request> request,
+                    std::shared_ptr<erob_master::srv::MoveMotor::Response> response)
+    {
+        RCLCPP_INFO(this->get_logger(), "收到停止请求");
+        int node_id = request->node_id;
+        float position = request->target;
+        try
+        {
+            set_torque_pdo(node_id, position);
+            response->success = true;
+            response->message = "电机电流已设置";
         }
         catch (const std::exception& e)
         {
@@ -1635,12 +1699,15 @@ private:
 
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr position_sub_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr velocity_sub_;
+    rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr effort_sub_;
 
     rclcpp::Service<erob_master::srv::MotorID>::SharedPtr start_service_;
     rclcpp::Service<erob_master::srv::MotorID>::SharedPtr stop_service_;
     rclcpp::Service<erob_master::srv::MotorID>::SharedPtr reset_service_;
     rclcpp::Service<erob_master::srv::ConfigureMotor>::SharedPtr set_mode_service_;
-    rclcpp::Service<erob_master::srv::MoveMotorPPM>::SharedPtr set_position_service_;
+    rclcpp::Service<erob_master::srv::MoveMotor>::SharedPtr set_position_service_;
+    rclcpp::Service<erob_master::srv::MoveMotor>::SharedPtr set_velocity_service_;
+    rclcpp::Service<erob_master::srv::MoveMotor>::SharedPtr set_effort_service_;
 };
 
 int main(int argc, char * argv[])

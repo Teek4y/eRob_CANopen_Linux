@@ -126,11 +126,45 @@ ros2 service call /set_erob_position erob_master/srv/MoveMotorPPM "{node_id: 6, 
 
 #### Topic Control
 
+- Position Control
+
 Control motor position by publishing sensor_msgs::msg::JointState messge to topic /target_position :
 
 ```bash
 JointState:
    position[]:
+      120.0
+      180.0
+      120.0
+      90.0
+      100.0
+      0.0
+      12.0
+```
+
+- Velocity Control
+
+Control motor velocity by publishing sensor_msgs::msg::JointState messge to topic /target_velocity :
+
+```bash
+JointState:
+   velocity[]:
+      120.0
+      180.0
+      120.0
+      90.0
+      100.0
+      0.0
+      12.0
+```
+
+- Torque Control
+
+Control motor effort by publishing sensor_msgs::msg::JointState messge to topic /target_effort :
+
+```bash
+JointState:
+   effort[]:
       120.0
       180.0
       120.0
@@ -175,6 +209,8 @@ ros2 service call /stop_erob erob_master/srv/MotorID "node_id: 1"
 ros2 service call /reset_erob erob_master/srv/MotorID "node_id: 1"
 ```
 
+It may take twice the command to reset motor successfully.
+
 ## Setting Motor Mode
 
 - Set to position mode
@@ -189,13 +225,27 @@ ros2 service call /set_erob_mode erob_master/srv/ConfigureMotor "{node_id: 1, op
 ros2 service call /set_erob_mode erob_master/srv/ConfigureMotor "{node_id: 2, operation_mode: PVM}"
 ```
 
-## Setting Motor Mode
+- Set to torque mode
+
+```bash
+ros2 service call /set_erob_mode erob_master/srv/ConfigureMotor "{node_id: 2, operation_mode: PTM}"
+```
+
+## Moving Motor
 
 - Set to position mode
 
 ```bash
-ros2 service call /set_erob_position erob_master/srv/MoveMotorPPM "{node_id: 6, target_position: 180}"
+ros2 service call /set_erob_position erob_master/srv/MoveMotor "{node_id: 6, target: 180}"
 ```
+
+- Set to torque mode
+
+```bash
+ros2 service call /set_erob_effort erob_master/srv/MoveMotor "{node_id: 6, target: 0}"
+```
+
+
 
 ## Monitor Motor Status（不可用）
 
@@ -233,7 +283,7 @@ ros2 topic echo /erob_velocity
 | /stop_erob | erob_master/srv/MotorID | Stop motor ("node_id: 1") |
 | /reset_erob | erob_master/srv/MotorID | Reset motor ("node_id: 1") |
 | /set_erob_mode | erob_master/srv/ConfigureMotor | Set motor mode ("PPM": position mode, "PVM": velocity mode, "PTM": Torque mode) |
-| /set_erob_position | erob_master/srv/MoveMotorPPM | Set motor position ("{node_id: 1, target_position: 180.0}") |
+| /set_erob_position | erob_master/srv/MoveMotor | Set motor position ("{node_id: 1, target: 180.0}") |
 
 ## Parameter List
 

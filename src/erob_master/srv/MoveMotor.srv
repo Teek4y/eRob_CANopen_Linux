@@ -1,5 +1,5 @@
 int32 node_id       
-float64 target_position 
+float64 target
 ---
 bool success
 string message
