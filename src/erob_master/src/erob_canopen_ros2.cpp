@@ -164,8 +164,8 @@ public:
             motor_config_[i].status_enabled = 0;
             motor_config_[i].status_fault = 0;
             motor_config_[i].velocity = 30; //5.72
-            motor_config_[i].acceleration_rpm2 = 100;//0.51
-            motor_config_[i].deceleration_rpm2 = 100;//0.51
+            motor_config_[i].acceleration_rpm2 = 0.51;//0.51
+            motor_config_[i].deceleration_rpm2 = 0.51;//0.51
             motor_config_[i].max_torque = 2.0;
             motor_config_[i].vel_ratio = 100;
             motor_config_[i].efficiency = 0.60;
@@ -822,33 +822,33 @@ private:
         }
     }
     
-    void set_profile_velocity(int node_id, int32_t velocity_rpm)
+    void set_profile_velocity(int node_id, float velocity_rpm)
     {
         int32_t velocity_pulse = velocity_to_pulse(velocity_rpm);
         write_sdo(node_id, OD_PROFILE_VELOCITY, 0x00, velocity_pulse, 4);
-        RCLCPP_INFO(this->get_logger(), "轮廓速度已设置: %d°/s", velocity_rpm);
+        RCLCPP_INFO(this->get_logger(), "轮廓速度已设置: %.1f°/s", velocity_rpm);
     }
     
-    void set_profile_acceleration(int node_id, int32_t acceleration_rpm2)
+    void set_profile_acceleration(int node_id, float acceleration_rpm2)
     {
         int32_t acceleration_pulse = acceleration_to_pulse(acceleration_rpm2);
         write_sdo(node_id, OD_PROFILE_ACCELERATION, 0x00, acceleration_pulse, 4);
-        RCLCPP_INFO(this->get_logger(), "轮廓加速度已设置: %d°/s²", acceleration_rpm2);
+        RCLCPP_INFO(this->get_logger(), "轮廓加速度已设置: %.1f°/s²", acceleration_rpm2);
     }
     
-    void set_profile_deceleration(int node_id, int32_t deceleration_rpm2)
+    void set_profile_deceleration(int node_id, float deceleration_rpm2)
     {
         int32_t deceleration_pulse = acceleration_to_pulse(deceleration_rpm2);
         write_sdo(node_id, OD_PROFILE_DECELERATION, 0x00, deceleration_pulse, 4);
-        RCLCPP_INFO(this->get_logger(), "轮廓减速度已设置: %d°/s²", deceleration_rpm2);
+        RCLCPP_INFO(this->get_logger(), "轮廓减速度已设置: %.1f°/s²", deceleration_rpm2);
     }
     
-    void set_profile_parameters(int node_id, int32_t velocity_rpm, int32_t acceleration_rpm2, int32_t deceleration_rpm2)
+    void set_profile_parameters(int node_id, float velocity_rpm, float acceleration_rpm2, float deceleration_rpm2)
     {
         set_profile_velocity(node_id, velocity_rpm);
         set_profile_acceleration(node_id, acceleration_rpm2);
         set_profile_deceleration(node_id, deceleration_rpm2);
-        RCLCPP_INFO(this->get_logger(), "轮廓参数设置完成 - 速度: %d°/s, 加速度: %d°/s², 减速度: %d°/s²", 
+        RCLCPP_INFO(this->get_logger(), "轮廓参数设置完成 - 速度: %.1f°/s, 加速度: %.1f°/s², 减速度: %.1f°/s²", 
                    velocity_rpm, acceleration_rpm2, deceleration_rpm2);
     }
     
@@ -1308,7 +1308,7 @@ private:
         int node_id = 1;
         for (auto i : msg->position){
             // float angle = msg->position[node_id];
-            // RCLCPP_INFO(this->get_logger(), "收到目标位置: %.2f°", i);
+            RCLCPP_INFO(this->get_logger(), "收到目标位置: %.2f°", i);
         
             // 添加更多调试信息
             // RCLCPP_INFO(this->get_logger(), "当前CAN套接字: %d", can_socket_);
@@ -1594,14 +1594,14 @@ private:
     }
     
     // 辅助函数：速度转脉冲
-    int32_t velocity_to_pulse(int32_t velocity_rpm)
+    int32_t velocity_to_pulse(float velocity_rpm)
     {
         int32_t velocity_pulse_per_sec = static_cast<int32_t>((velocity_rpm / 60.0) * ENCODER_RESOLUTION);
         return velocity_pulse_per_sec;
     }
     
     // 辅助函数：加速度转脉冲
-    int32_t acceleration_to_pulse(int32_t acceleration_rpm2)
+    int32_t acceleration_to_pulse(float acceleration_rpm2)
     {
         int32_t acceleration_pulse_per_sec2 = static_cast<int32_t>((acceleration_rpm2 / 60.0) * ENCODER_RESOLUTION);
         return acceleration_pulse_per_sec2;
