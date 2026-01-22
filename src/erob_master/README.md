@@ -16,36 +16,30 @@ eRob Master is a ROS 2-based CANopen motor controller used to control motors tha
 ### Prerequisites
 
 - ROS 2 (Humble or higher version recommended)
-- CAN interface (e.g., USB-CAN adapter)
+- CAN interface (e.g., Socket-CAN adapter)
 - Motors supporting CANopen protocol
 
 ### Build and Install
 
-1. Create workspace
+
+1. Clone repository
 
    ```bash
-   mkdir -p ~/erob_ws/src
-   cd ~/erob_ws/src
-   ```
-
-2. Clone repository
-
-   ```bash
-   git clone https://github.com/your-username/erob_master.git
+   git clone https://github.com/Teek4y/eRob_CANopen_Linux.git
    ```
 
 3. Build
 
    ```bash
-   cd ~/erob_ws
-   colcon build --packages-select erob_master
+   cd ~/eRob_CANopen_Linux
+   colcon build 
    ```
 
 4. Launch node
 
    ```bash
    source install/setup.bash
-   ros2 launch erob_master erob_master.launch.py
+   ros2 launch erob_master canopen_ros2.launch.py
    ```
 
 ## Configure CAN Interface
@@ -70,6 +64,35 @@ sudo ip link set up can0
 ip -details link show can0
 ```
 
+## 说明
+
+### 1.支持功能
+
+多电机PDO配置、使能、错误清除、重置、PPM/PVM/PTM控制
+
+#### 默认PDO配置
+
+TxPDO1: 状态字(0x6041)+实际位置(0x6064)+实际电流(0x6078) 8Byte
+
+TxPDO2: 状态字(0x6041)+实际速度(0x606C) 6Byte
+
+RxPDO1: 控制字(0x6040)+目标位置(0x607A) 6Byte
+
+RxPDO2: 控制字(0x6040)+目标速度(0x60FF) 6Byte
+
+RxPDO3: 控制字(0x6040)+目标力矩(0x6071) 6Byte
+
+### 2.消息类型
+
+多电机实际值以 sensor_msgs::msg::JointState 消息类型通过话题 /erob_joint_state_real 发布
+
+   position：电机实际位置
+   velocity：电机实际速度
+   effort：电机实际电流
+
+此外订阅 sensor_msgs::msg::JointState 消息类型话题 /target_position 的数据，将目标角度下发到关节电机。
+
+
 ## Usage
 
 ### 1. Launch Node
@@ -80,7 +103,9 @@ Launch with default parameters
 ros2 launch erob_master canopen_ros2.launch.py
 ```
 
-### 2. Launch with custom parameters
+
+### 2. Launch with custom parameters（不可用）
+
 ```bash
 ros2 launch erob_master canopen_ros2.launch.py can_interface:=can0 node_id:=2 auto_start:=true
 ```
@@ -89,87 +114,165 @@ ros2 launch erob_master canopen_ros2.launch.py can_interface:=can0 node_id:=2 au
 
 ### 1. Position Control
 
-Control motor position by publishing to /target_position topic:
+#### Service Control
 
-- Move to 90 degrees
+Control motor position by publishing to service /set_erob_position :
 
-```bash
-ros2 topic pub /target_position std_msgs/msg/Float32 "data: 90.0" --once
-```
-
-- Move to 180 degrees
+- Joint 6 Move to 90 degrees
 
 ```bash
-ros2 topic pub /target_position std_msgs/msg/Float32 "data: 180.0" --once
+ros2 service call /set_erob_position erob_master/srv/MoveMotor "{node_id: 6, target: 90.0}"
 ```
+
+#### Topic Control
+
+- Position Control
+
+Control motor position by publishing sensor_msgs::msg::JointState messge to topic /target_position :
+
+```bash
+JointState:
+   position[]:
+      120.0
+      180.0
+      120.0
+      90.0
+      100.0
+      0.0
+      12.0
+```
+
+- Velocity Control
+
+Control motor velocity by publishing sensor_msgs::msg::JointState messge to topic /target_velocity :
+
+```bash
+JointState:
+   velocity[]:
+      120.0
+      180.0
+      120.0
+      90.0
+      100.0
+      0.0
+      12.0
+```
+
+- Torque Control
+
+Control motor effort by publishing sensor_msgs::msg::JointState messge to topic /target_effort :
+
+```bash
+JointState:
+   effort[]:
+      120.0
+      180.0
+      120.0
+      90.0
+      100.0
+      0.0
+      12.0
+```
+
 
 ### 2. Velocity Control
+
+#### Service Control
+
+Control motor velocity by publishing to service /set_erob_velocity :
+
+- Joint 6 Move at 10 degrees/s
+
+```bash
+ros2 service call /set_erob_velocity erob_master/srv/MoveMotor "{node_id: 6, target: 10.0}"
+```
+
+#### Topic Control
 
 Control motor velocity by publishing to /target_velocity topic:
 
 - Set velocity to 10 degrees/second
 
+todo
+
+### 3. Torque Control
+
+#### Service Control
+
+Control motor torque by publishing to service /set_erob_effort :
+
+- Joint 6 Move with 1000mA
+
 ```bash
-ros2 topic pub /target_velocity std_msgs/msg/Float32 "data: 10.0" --once
+ros2 service call /set_erob_effort erob_master/srv/MoveMotor "{node_id: 6, target: 1000}"
 ```
 
-- Set velocity to -10 degrees/second
+#### Topic Control
 
-```bash
-ros2 topic pub /target_velocity std_msgs/msg/Float32 "data: -10.0" --once
-```
+Control motor torque by publishing to /target_torque topic:
+
+todo
 
 ## Service Interfaces
 
 ### 1. Start Motor
 
 ```bash
-ros2 service call /start_erob std_srvs/srv/Trigger
+ros2 service call /start_erob erob_master/srv/MotorID "node_id: 1"
 ```
 
 ### 2. Stop Motor
 
 ```bash
-ros2 service call /stop_erob std_srvs/srv/Trigger
+ros2 service call /stop_erob erob_master/srv/MotorID "node_id: 1"
 ```
 
 ### 3. Reset Motor
 
 ```bash
-ros2 service call /reset_erob std_srvs/srv/Trigger
+ros2 service call /reset_erob erob_master/srv/MotorID "node_id: 1"
 ```
+
+It may take twice the command to reset motor successfully.
 
 ## Setting Motor Mode
 
 - Set to position mode
 
 ```bash
-ros2 service call /set_erob_mode std_srvs/srv/SetBool "data: true"
+ros2 service call /set_erob_mode erob_master/srv/ConfigureMotor "{node_id: 1, operation_mode: PPM}"
 ```
 
 - Set to velocity mode
 
 ```bash
-ros2 service call /set_erob_mode std_srvs/srv/SetBool "data: false"
+ros2 service call /set_erob_mode erob_master/srv/ConfigureMotor "{node_id: 2, operation_mode: PVM}"
 ```
 
-## Monitor Motor Status
+- Set to torque mode
+
+```bash
+ros2 service call /set_erob_mode erob_master/srv/ConfigureMotor "{node_id: 2, operation_mode: PTM}"
+```
+
+
+
+
+## Monitor Motor Status（不可用）
 
 ```bash
 ros2 topic echo /erob_status
 ```
 
-## View Motor Position
+## View Motor Joint State
 
 ```bash
-ros2 topic echo /erob_position
+ros2 topic echo /erob_joint_state_real
 ```
 
-## View Motor Velocity
-
-```bash
-ros2 topic echo /erob_velocity
-```
+msg.position: 各关节实际位置
+msg.velocity: 各关节实际速度
+msg.effort:   各关节实际电流
 
 ## Topic List
 
@@ -185,10 +288,11 @@ ros2 topic echo /erob_velocity
 
 | Service Name | Service Type | Description |
 | ------------ | ------------ | ----------- |
-| /start_erob | std_srvs/srv/Trigger | Start motor |
-| /stop_erob | std_srvs/srv/Trigger | Stop motor |
-| /reset_erob | std_srvs/srv/Trigger | Reset motor |
-| /set_erob_mode | std_srvs/srv/SetBool | Set motor mode (true: position mode, false: velocity mode) |
+| /start_erob | erob_master/srv/MotorID | Start motor ("node_id: 1") |
+| /stop_erob | erob_master/srv/MotorID | Stop motor ("node_id: 1") |
+| /reset_erob | erob_master/srv/MotorID | Reset motor ("node_id: 1") |
+| /set_erob_mode | erob_master/srv/ConfigureMotor | Set motor mode ("PPM": position mode, "PVM": velocity mode, "PTM": Torque mode) |
+| /set_erob_position | erob_master/srv/MoveMotor | Set motor position ("{node_id: 1, target: 180.0}") |
 
 ## Parameter List
 
