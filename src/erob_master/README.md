@@ -278,11 +278,10 @@ msg.effort:   各关节实际电流(mA)
 
 | Topic Name | Message Type | Description |
 | ---------- | ------------ | ----------- |
-| /target_position | std_msgs/msg/Float32 | Set target position (degrees) |
-| /target_velocity | std_msgs/msg/Float32 | Set target velocity (degrees/second) |
+| /target_position | sensor_msgs/msg/JointState | Set target position (deg) |
+| /target_velocity | sensor_msgs/msg/JointState | Set target velocity (deg/s) |
 | /erob_status | std_msgs/msg/String | Motor status information |
-| /erob_position | std_msgs/msg/Float32 | Current position (degrees) |
-| /erob_velocity | std_msgs/msg/Float32 | Current velocity (degrees/second) |
+| /erob_joint_state_real | sensor_msgs/msg/JointState | Current position(deg), velocity(deg/s), effort(mA) |
 
 ## Service List
 
