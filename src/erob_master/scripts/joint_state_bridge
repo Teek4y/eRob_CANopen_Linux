@@ -1,0 +1,241 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+机械臂关节状态桥接节点 + TF基座位姿发布
+功能：
+1. 订阅 /erob_joint_state_real 话题（角度制，自定义零点）
+2. 将角度转换为弧度，应用零点偏移补偿，对齐URDF定义
+3. 发布到 /joint_state 话题供Rviz可视化
+4. 发布 TF 变换：world → base_link（可配置基座位姿）
+"""
+
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import JointState
+from geometry_msgs.msg import TransformStamped
+from tf2_ros import TransformBroadcaster
+import math
+
+
+class JointStateBridge(Node):
+    def __init__(self):
+        super().__init__('joint_state_bridge')
+
+        # ==================== 参数配置区 ====================
+        # 关节名称（必须与URDF中的joint名称一致，顺序也要一致）
+        self.joint_names = [
+            'joint1',
+            'joint2',
+            'joint3',
+            'joint4',
+            'joint5',
+            'joint6'
+        ]
+
+        # 零点偏移量（单位：度）
+        # 公式：URDF角度 = 实际角度(度) * 方向系数 + 偏移量 → 转弧度
+        self.zero_offsets_deg = [
+            -90.0,    # joint1
+            0.0,    # joint2
+            0.0,    # joint3
+            0.0,    # joint4
+            0.0,    # joint5
+            11.0     # joint6
+        ]
+
+        # 方向系数（1 或 -1）
+        self.direction_factors = [
+            1.0, 1.0, 1.0, 1.0, 1.0, 1.0
+        ]
+
+        # 发布频率 (Hz)
+        self.publish_rate = 100.0
+
+        # ========== TF 基座位姿配置 ==========
+        # 机械臂基座(base_link)相对于世界坐标系(world)的位姿
+        # 单位：位置(m)，旋转(度，绕固定轴XYZ的欧拉角，即RPY)
+        self.base_position = {
+            'x': 0.0,      # 基座在世界坐标系中的X位置 (米)
+            'y': 0.0,      # 基座在世界坐标系中的Y位置 (米)
+            'z': 0.7       # 基座在世界坐标系中的Z位置 (米)
+        }
+
+        self.base_rotation_rpy_deg = {
+            'roll':  -90.0,  # 绕X轴旋转 (度)
+            'pitch': 0.0,  # 绕Y轴旋转 (度)
+            'yaw':   0.0   # 绕Z轴旋转 (度)
+        }
+
+        # TF坐标系名称
+        self.world_frame = 'world'           # 父坐标系
+        self.base_frame = 'base_link'        # 子坐标系（必须与URDF中的base_link一致）
+        # ===================================
+
+        # 创建订阅者
+        self.subscription = self.create_subscription(
+            JointState,
+            '/erob_joint_state_real',
+            self.real_joint_callback,
+            10
+        )
+
+        # 创建发布者
+        self.publisher = self.create_publisher(
+            JointState,
+            '/joint_states',
+            10
+        )
+
+        # 创建TF广播器
+        self.tf_broadcaster = TransformBroadcaster(self)
+
+        # 定时器
+        self.timer = self.create_timer(
+            1.0 / self.publish_rate,
+            self.timer_callback
+        )
+
+        # 存储最新的实际关节状态
+        self.latest_real_joint_state = None
+
+        # 预计算基座的四元数（因为基座位姿通常是固定的）
+        self.base_quaternion = self.euler_to_quaternion(
+            math.radians(self.base_rotation_rpy_deg['roll']),
+            math.radians(self.base_rotation_rpy_deg['pitch']),
+            math.radians(self.base_rotation_rpy_deg['yaw'])
+        )
+
+        self.get_logger().info('========================================')
+        self.get_logger().info('Joint State Bridge + TF Publisher 已启动')
+        self.get_logger().info('----------------------------------------')
+        self.get_logger().info(f'订阅话题: /erob_joint_state_real')
+        self.get_logger().info(f'发布话题: /joint_state')
+        self.get_logger().info(f'TF变换: {self.world_frame} → {self.base_frame}')
+        self.get_logger().info(f'基座位置: x={self.base_position["x"]}m, '
+                               f'y={self.base_position["y"]}m, '
+                               f'z={self.base_position["z"]}m')
+        self.get_logger().info(f'基座旋转: roll={self.base_rotation_rpy_deg["roll"]}°, '
+                               f'pitch={self.base_rotation_rpy_deg["pitch"]}°, '
+                               f'yaw={self.base_rotation_rpy_deg["yaw"]}°')
+        self.get_logger().info('========================================')
+        self.get_logger().info('提示：请根据实际机械臂修改 zero_offsets_deg 和 base_position/base_rotation_rpy_deg')
+
+    def euler_to_quaternion(self, roll, pitch, yaw):
+        """
+        将欧拉角（RPY，弧度）转换为四元数 (x, y, z, w)
+        旋转顺序：ZYX（即先绕Z轴yaw，再绕Y轴pitch，最后绕X轴roll）
+        """
+        cy = math.cos(yaw * 0.5) 
+        sy = math.sin(yaw * 0.5)
+        cp = math.cos(pitch * 0.5)
+        sp = math.sin(pitch * 0.5)
+        cr = math.cos(roll * 0.5)
+        sr = math.sin(roll * 0.5)
+
+        w = cr * cp * cy + sr * sp * sy
+        x = sr * cp * cy - cr * sp * sy
+        y = cr * sp * cy + sr * cp * sy
+        z = cr * cp * sy - sr * sp * cy
+
+        return (x, y, z, w)
+
+    def real_joint_callback(self, msg: JointState):
+        """接收实际机械臂的关节状态回调"""
+        self.latest_real_joint_state = msg
+
+        if not hasattr(self, '_first_msg_received'):
+            self._first_msg_received = True
+            self.get_logger().info(
+                f'首次接收到实际关节数据: '
+                f'names={msg.name}, '
+                f'positions(deg)={[round(p, 4) for p in msg.position]}'
+            )
+
+    def publish_tf(self):
+        """发布 world → base_link 的TF变换"""
+        t = TransformStamped()
+
+        t.header.stamp = self.get_clock().now().to_msg()
+        t.header.frame_id = self.world_frame
+        t.child_frame_id = self.base_frame
+
+        # 位置
+        t.transform.translation.x = self.base_position['x']
+        t.transform.translation.y = self.base_position['y']
+        t.transform.translation.z = self.base_position['z']
+
+        # 旋转（四元数）
+        t.transform.rotation.x = self.base_quaternion[0]
+        t.transform.rotation.y = self.base_quaternion[1]
+        t.transform.rotation.z = self.base_quaternion[2]
+        t.transform.rotation.w = self.base_quaternion[3]
+
+        self.tf_broadcaster.sendTransform(t)
+
+    def convert_joint_state(self):
+        """转换关节状态并发布"""
+        if self.latest_real_joint_state is None:
+            return
+
+        joint_state_msg = JointState()
+        joint_state_msg.header.stamp = self.get_clock().now().to_msg()
+        joint_state_msg.header.frame_id = ''
+        joint_state_msg.name = self.joint_names.copy()
+
+        real_positions = list(self.latest_real_joint_state.position)
+        num_joints = min(len(real_positions), len(self.joint_names))
+
+        converted_positions = []
+        for i in range(num_joints):
+            real_deg = real_positions[i] * self.direction_factors[i]
+            corrected_deg = real_deg + self.zero_offsets_deg[i]
+            rad = math.radians(corrected_deg)
+            converted_positions.append(rad)
+
+        joint_state_msg.position = converted_positions
+
+        # 速度转换
+        # if len(self.latest_real_joint_state.velocity) > 0:
+        #     real_velocities = list(self.latest_real_joint_state.velocity)
+        #     converted_velocities = []
+        #     for i in range(min(len(real_velocities), num_joints)):
+        #         vel_rad = math.radians(
+        #             real_velocities[i] * self.direction_factors[i]
+        #         )
+        #         converted_velocities.append(vel_rad)
+        #     joint_state_msg.velocity = converted_velocities
+        # else:
+        joint_state_msg.velocity = []
+
+        # 力矩透传
+        # if len(self.latest_real_joint_state.effort) > 0:
+        #     joint_state_msg.effort = list(self.latest_real_joint_state.effort)
+        # else:
+        joint_state_msg.effort = []
+
+        self.publisher.publish(joint_state_msg)
+
+    def timer_callback(self):
+        """定时器回调：发布TF + 转换并发布关节状态"""
+        # 1. 发布基座TF（每次都要发布，否则TF会过期）
+        self.publish_tf()
+
+        # 2. 转换并发布关节状态
+        self.convert_joint_state()
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = JointStateBridge()
+
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        node.get_logger().info('节点被手动中断')
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

@@ -163,13 +163,16 @@ public:
             motor_config_[i].status_word = 0;
             motor_config_[i].status_enabled = 0;
             motor_config_[i].status_fault = 0;
-            motor_config_[i].velocity = 30; //5.72
-            motor_config_[i].acceleration_rpm2 = 0.51;//0.51
-            motor_config_[i].deceleration_rpm2 = 0.51;//0.51
+            motor_config_[i].velocity = 5.72; //5.72 max30
+            motor_config_[i].acceleration_rpm2 = 0.51;//0.51 max100
+            motor_config_[i].deceleration_rpm2 = 0.51;//0.51 max100
+            // motor_config_[i].acceleration_rpm2 = 100;//0.51 max100
+            // motor_config_[i].deceleration_rpm2 = 100;//0.51 max100
             motor_config_[i].max_torque = 2.0;
             motor_config_[i].vel_ratio = 100;
             motor_config_[i].efficiency = 0.60;
         }
+        motor_config_[6].operation_mode = MODE_PROFILE_TORQUE;
         motor_config_[0].rated_current = 18000; // eRob90H100I-BM-18CN(V3)
         motor_config_[1].rated_current = 18000; // eRob90H100I-BM-18CN(V3)
         motor_config_[2].rated_current = 5100; // eRob80H100I-BM-18CN(V6)
@@ -204,7 +207,7 @@ public:
             // 初始化节点
             initialize_motor(motor_config_[i].node_id);
         }
-
+        // initialize_motor(motor_config_[6].node_id);
 
         
         // 创建状态发布定时器
@@ -226,7 +229,7 @@ public:
         
         // 创建订阅器
         position_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
-            "target_position", 1, std::bind(&CANopenROS2::position_callback, this, std::placeholders::_1));
+            "target_position_cmd", 1, std::bind(&CANopenROS2::position_callback, this, std::placeholders::_1));
         velocity_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
             "target_velocity", 1, std::bind(&CANopenROS2::velocity_callback, this, std::placeholders::_1));
         effort_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
@@ -387,14 +390,22 @@ private:
         // }
         */
 
-        // 设置轮廓速度
-        set_profile_velocity(node_id, motor_config.velocity);
         
-        // 设置轮廓加速度
-        set_profile_acceleration(node_id, motor_config.acceleration_rpm2);
+        if(motor_config.operation_mode == MODE_PROFILE_POSITION){
+            // 设置轮廓速度
+            set_profile_velocity(node_id, motor_config.velocity);
+        }
         
-        // 设置轮廓减速度
-        set_profile_deceleration(node_id, motor_config.deceleration_rpm2);
+        if(motor_config.operation_mode == MODE_PROFILE_POSITION || 
+            motor_config.operation_mode == MODE_PROFILE_VELOCITY ||
+            motor_config.operation_mode == MODE_CYCLIC_VELOCITY){
+            // 设置轮廓加速度
+            set_profile_acceleration(node_id, motor_config.acceleration_rpm2);
+        
+            // 设置轮廓减速度
+            set_profile_deceleration(node_id, motor_config.deceleration_rpm2);
+        }
+
         
         // 禁用同步生成器
         write_sdo(node_id, OD_SYNC_MESSAGE, 0x00, 0x00000080, 4);
@@ -937,13 +948,12 @@ private:
             return;
             // if (angle > 330){
             //     angle = 330;
-            // }else if(angle < 100){
-            //     angle = 100;
+            // }else if(angle < 5){
+            //     angle = 5;
             // }
         }
 
         int32_t position = angle_to_position(angle);
-        // RCLCPP_INFO(this->get_logger(), "目标位置脉冲值: %d", position);
         
         // 使用PDO发送目标位置
         struct can_frame frame;
@@ -961,10 +971,44 @@ private:
             RCLCPP_ERROR(this->get_logger(), "发送目标位置失败");
             return;
         }
-        // // 设置命令触发位，创建上升沿
-        // set_control_word(node_id, CONTROL_ENABLE_OPERATION | CONTROL_NEW_SET_POINT_IMMEDIATE_1);
+        // 设置命令触发位，创建上升沿
         frame.data[0] = (CONTROL_ENABLE_OPERATION | CONTROL_NEW_SET_POINT_IMMEDIATE_2) & 0xFF;  // 控制字低字节
         frame.data[1] = ((CONTROL_ENABLE_OPERATION | CONTROL_NEW_SET_POINT_IMMEDIATE_2) >> 8) & 0xFF;  // 控制字高字节
+        if (write(can_socket_, &frame, sizeof(struct can_frame)) != sizeof(struct can_frame))
+        {
+            RCLCPP_ERROR(this->get_logger(), "发送目标位置失败");
+            return;
+        }
+    }
+
+    void set_position_pdo_csp(int node_id, float angle)
+    {
+        // RCLCPP_INFO(this->get_logger(), "通过PDO移动到位置: %.2f°", angle);
+        
+        // 7关节限位防止超限
+        if (node_id == 7){
+            return;
+            // if (angle > 330){
+            //     angle = 330;
+            // }else if(angle < 5){
+            //     angle = 5;
+            // }
+        }
+
+        int32_t position = angle_to_position(angle);
+        // RCLCPP_INFO(this->get_logger(), "目标位置脉冲值: %d", position);
+        
+        // 使用PDO发送目标位置
+        struct can_frame frame;
+        frame.can_id = COB_RPDO1 + node_id;
+        frame.can_dlc = 6;  // 控制字(2字节) + 目标位置(4字节)
+        frame.data[0] = (CONTROL_ENABLE_OPERATION | CONTROL_NEW_SET_POINT) & 0xFF;  // 控制字低字节
+        frame.data[1] = ((CONTROL_ENABLE_OPERATION | CONTROL_NEW_SET_POINT) >> 8) & 0xFF;  // 控制字高字节
+        frame.data[2] = position & 0xFF;  // 目标位置低字节
+        frame.data[3] = (position >> 8) & 0xFF;
+        frame.data[4] = (position >> 16) & 0xFF;
+        frame.data[5] = (position >> 24) & 0xFF;  // 目标位置高字节
+        
         if (write(can_socket_, &frame, sizeof(struct can_frame)) != sizeof(struct can_frame))
         {
             RCLCPP_ERROR(this->get_logger(), "发送目标位置失败");
@@ -975,7 +1019,7 @@ private:
     
     void set_velocity_pdo(int node_id, float velocity)
     {
-        RCLCPP_INFO(this->get_logger(), "通过PDO设置速度: %.2f°", velocity);
+        RCLCPP_INFO(this->get_logger(), "通过PDO设置速度: %.2f°/s", velocity);
         
         int32_t position = velocity_to_pulse(velocity);
         RCLCPP_INFO(this->get_logger(), "目标速度脉冲值: %d", position);
@@ -1001,14 +1045,17 @@ private:
     }
  
     void set_torque_pdo(int node_id, float torque)
-    {
-        RCLCPP_INFO(this->get_logger(), "通过PDO设置电流: %.2f°", torque);
+    {   
+        float efficiency = 0.7; // 假设效率为70%，实际值需要根据电机特性调整
+        float current = torque / motor_config_[node_id-1].torque_constant / motor_config_[node_id-1].vel_ratio / efficiency;
+        // actual_torque = torque_constant * vel_ratio * efficiency * actual_current
+        RCLCPP_INFO(this->get_logger(), "通过PDO设置电流: %.2fmA", current);
         
         // int16_t hex = torque_to_hex(torque);
-        int16_t hex = static_cast<int16_t>(torque * 1000.0 / static_cast<float>(motor_config_[node_id-1].rated_current));
+        int16_t hex = static_cast<int16_t>(current * 1000.0 / static_cast<float>(motor_config_[node_id-1].rated_current));
         RCLCPP_INFO(this->get_logger(), "目标电流脉冲值: %d", hex);
         
-        // 使用PDO发送目标速度
+        // 使用PDO发送目标电流
         struct can_frame frame;
         frame.can_id = COB_RPDO3 + node_id;
         frame.can_dlc = 4;  // 控制字(2字节) + 目标电流(2字节)
@@ -1134,7 +1181,7 @@ private:
         // 处理接收到的CAN帧
         uint32_t cob_id = frame.can_id & 0x780;  // 提取功能码
         uint8_t node_id = frame.can_id & 0x7F;  // 提取节点ID
-        
+        uint16_t status_word = 0x00;
         // RCLCPP_DEBUG(this->get_logger(), "接收到CAN帧: ID=0x%03X, DLC=%d, Data=0x%02X%02X%02X%02X%02X%02X%02X%02X",
         //     frame.can_id, frame.can_dlc,
         //     frame.data[0], frame.data[1], frame.data[2], frame.data[3],
@@ -1154,8 +1201,8 @@ private:
                 }
                 else if (index == OD_STATUS_WORD && subindex == 0x00)  // 状态字
                 {
-                    uint16_t status_word = frame.data[4] | (frame.data[5] << 8);
-                    status_word_ = status_word;
+                    status_word = frame.data[4] | (frame.data[5] << 8);
+                    motor_config_[node_id - 1].status_word = status_word;
                     
                     // 检查目标到达位
                     if (status_word & 0x0400)
@@ -1198,7 +1245,8 @@ private:
                 // 处理TPDO1响应
                 if (frame.can_dlc >= 6)  // 状态字(2字节) + 实际速度(4字节)
                 {
-                    uint16_t status_word = frame.data[0] | (frame.data[1] << 8);
+                    status_word = frame.data[0] | (frame.data[1] << 8);
+                    motor_config_[node_id-1].status_word = status_word;
                     int32_t position = frame.data[2] | (frame.data[3] << 8) | (frame.data[4] << 16) | (frame.data[5] << 24);
                     // int32_t velocity_pulse = frame.data[2] | (frame.data[3] << 8) | (frame.data[4] << 16) | (frame.data[5] << 24);
                     
@@ -1250,7 +1298,6 @@ private:
     void publish_status()
     {
         // auto start = this->now();
-        
         auto status_msg = std_msgs::msg::String();
         // 根据状态字解析状态
         std::string status_str = "未知";
@@ -1280,10 +1327,8 @@ private:
 
         sensor_msgs::msg::JointState joint_state_real;
         // 发布位置
-        // auto pos_msg = std_msgs::msg::Float32();
-        // pos_msg.data = position_to_angle(position_);
-        // position_pub_->publish(pos_msg);
         joint_state_real.header.stamp = this->now();
+        joint_state_real.header.frame_id = "Joint State Real Value Feedback";
         for (size_t i = 0; i < NUM_MOTORS; ++i) {
             joint_state_real.position.push_back(motor_config_[i].actual_position);
             joint_state_real.velocity.push_back(motor_config_[i].actual_velocity);
@@ -1322,7 +1367,24 @@ private:
             // int32_t mode = read_sdo(node_id, OD_OPERATION_MODE_DISPLAY, 0x00);
             // RCLCPP_INFO(this->get_logger(), "当前操作模式: %d", mode);
             // go_to_position(node_id, angle);
-            set_position_pdo(node_id, i);
+            if (motor_config_[node_id - 1].operation_mode == MODE_PROFILE_POSITION){
+                set_position_pdo(node_id, i);
+            }
+            else if(motor_config_[node_id - 1].operation_mode == MODE_CYCLIC_POSITION){
+                set_position_pdo_csp(node_id, i);
+            }
+
+
+            //-----------夹爪关节单独力控，屎山-------------
+            if(node_id == 7 && motor_config_[node_id - 1].operation_mode == MODE_PROFILE_TORQUE){
+                if(i > motor_config_[node_id - 1].actual_position+0.2){
+                    set_torque_pdo(node_id, 20000);
+                }
+                else if(i < motor_config_[node_id - 1].actual_position-0.2){
+                    set_torque_pdo(node_id, -20000);
+                }
+            }
+            //------------------------------------------
             node_id++;
         }
         // auto dt = (this->now() - start).seconds();
@@ -1344,7 +1406,7 @@ private:
         
     }
 
-    // 回调函数：处理目标速度
+    // 回调函数：处理目标电流
     void effort_callback(const sensor_msgs::msg::JointState::SharedPtr msg)
     {   
         int node_id = 1;
@@ -1352,7 +1414,7 @@ private:
             // float velocity = msg->velocity[node_id];
             RCLCPP_INFO(this->get_logger(), "收到目标电流: %.2f°/s", i);
             
-            // 尝试使用PDO设置速度
+            // 尝试使用PDO设置电流
             set_torque_pdo(node_id,i);
             node_id++;
         }
@@ -1453,11 +1515,21 @@ private:
                 // }else{
                 //     response->message = "设置位置模式失败，当前模式: " + std::to_string(mode);
                 // }
+                motor_config_[node_id-1].operation_mode = MODE_PROFILE_POSITION;
+            }
+            else if(request->operation_mode == "CSP"){
+                // 设置目标位置为当前位置，防止电机立即运动
+                int32_t current_position = read_sdo(node_id, OD_ACTUAL_POSITION, 0x00);
+                write_sdo(node_id, OD_TARGET_POSITION, 0x00, current_position, 4);
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                
+                write_sdo(node_id, OD_OPERATION_MODE, 0x00, MODE_CYCLIC_POSITION, 1);
+                motor_config_[node_id-1].operation_mode = MODE_CYCLIC_POSITION;
             }
             else if(request->operation_mode == "PVM"){
                 // 设置速度模式参数
-                set_profile_velocity(node_id, 5);  // 默认速度
-                
+                set_profile_acceleration(node_id, motor_config_[node_id - 1].acceleration_rpm2);
+                set_profile_deceleration(node_id, motor_config_[node_id - 1].deceleration_rpm2);
                 // 设置目标速度为0，防止电机立即运动
                 write_sdo(node_id, 0x60FF, 0x00, 0, 4);  // 0x60FF是目标速度对象
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -1471,10 +1543,22 @@ private:
                 // }else{
                 //     response->message = "设置速度模式失败，当前模式: " + std::to_string(mode);
                 // }
+                motor_config_[node_id-1].operation_mode = MODE_PROFILE_VELOCITY;
+            }
+            else if(request->operation_mode == "CSV"){
+                // 设置速度模式参数
+                set_profile_acceleration(node_id, motor_config_[node_id - 1].acceleration_rpm2);
+                set_profile_deceleration(node_id, motor_config_[node_id - 1].deceleration_rpm2);
+                // 设置目标速度为0，防止电机立即运动
+                write_sdo(node_id, 0x60FF, 0x00, 0, 4);  // 0x60FF是目标速度对象
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                
+                response->message = "已设置速度模式参数";
+
+                write_sdo(node_id, OD_OPERATION_MODE, 0x00, MODE_CYCLIC_VELOCITY, 1);
+                motor_config_[node_id-1].operation_mode = MODE_CYCLIC_VELOCITY;
             }
             else if(request->operation_mode == "PTM"){
-                // 设置扭矩模式参数（如果需要）
-                // set_profile_torque(node_id, 5);  // 默认力矩
                 // 设置目标力矩为当前力矩，防止电机立即运动
                 int32_t current_torque = read_sdo(node_id, OD_ACTUAL_TORQUE, 0x00);
                 write_sdo(node_id, OD_TARGET_TORQUE, 0x00, current_torque, 4);
@@ -1487,6 +1571,16 @@ private:
                 // }else{
                 //     response->message = "设置扭矩模式失败，当前模式: " + std::to_string(mode);
                 // }  
+                motor_config_[node_id-1].operation_mode = MODE_PROFILE_TORQUE;
+            }
+            else if(request->operation_mode == "CST"){
+                // 设置目标力矩为当前力矩，防止电机立即运动
+                int32_t current_torque = read_sdo(node_id, OD_ACTUAL_TORQUE, 0x00);
+                write_sdo(node_id, OD_TARGET_TORQUE, 0x00, current_torque, 4);
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+                write_sdo(node_id, OD_OPERATION_MODE, 0x00, MODE_CYCLIC_TORQUE, 1);
+                motor_config_[node_id-1].operation_mode = MODE_CYCLIC_TORQUE;
             }
             else{
                 throw std::runtime_error("未知的操作模式: " + request->operation_mode);
@@ -1510,9 +1604,18 @@ private:
         float position = request->target;
         try
         {
-            set_position_pdo(node_id, position);
-            response->success = true;
-            response->message = "电机位置已设置";
+            if(motor_config_[node_id-1].operation_mode == MODE_PROFILE_POSITION){
+                // 只允许PPM模式下的位置控制服务，CSP下效率过低（CSP误差不可大于0.5度）
+                set_position_pdo(node_id, position);
+                response->success = true;
+                response->message = "电机位置已设置";
+            }
+            else{
+                response->success = false;
+                response->message = "电机不处于正确的运动模式下";
+            }
+            
+            
         }
         catch (const std::exception& e)
         {
@@ -1530,9 +1633,16 @@ private:
         float position = request->target;
         try
         {
-            set_velocity_pdo(node_id, position);
-            response->success = true;
-            response->message = "电机速度已设置";
+            if(motor_config_[node_id-1].operation_mode == MODE_PROFILE_VELOCITY || 
+                motor_config_[node_id-1].operation_mode == MODE_CYCLIC_VELOCITY){
+                set_velocity_pdo(node_id, position);
+                response->success = true;
+                response->message = "电机速度已设置";
+            }
+            else{
+                response->success = false;
+                response->message = "电机不处于正确的运动模式下";
+            }
         }
         catch (const std::exception& e)
         {
@@ -1550,9 +1660,17 @@ private:
         float position = request->target;
         try
         {
-            set_torque_pdo(node_id, position);
-            response->success = true;
-            response->message = "电机电流已设置";
+            if(motor_config_[node_id-1].operation_mode == MODE_PROFILE_TORQUE || 
+                motor_config_[node_id-1].operation_mode == MODE_CYCLIC_TORQUE){
+                set_torque_pdo(node_id, position);
+                response->success = true;
+                response->message = "电机电流已设置";
+            }
+            else{
+                response->success = false;
+                response->message = "电机不处于正确的运动模式下";
+            }
+
         }
         catch (const std::exception& e)
         {
@@ -1607,8 +1725,6 @@ private:
         return acceleration_pulse_per_sec2;
     }
 
-
-
     void initialize_motor(int node_id)
     {   
         // 获取额定电流和额定力矩
@@ -1639,7 +1755,7 @@ private:
         RCLCPP_INFO(this->get_logger(), "电机初始化完成");
     }
     
-    void set_velocity(int node_id, float velocity_deg_per_sec)
+    void set_velocity_sdo(int node_id, float velocity_deg_per_sec)
     {
         RCLCPP_INFO(this->get_logger(), "设置速度: %.2f°/s", velocity_deg_per_sec);
         

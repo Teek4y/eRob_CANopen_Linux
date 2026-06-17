@@ -72,9 +72,9 @@ ip -details link show can0
 
 #### 默认PDO配置
 
-TxPDO1: 状态字(0x6041)+实际位置(0x6064)+实际电流(0x6078) 8Byte
+TxPDO1: 状态字(0x6041)+实际位置(0x6064) 6Byte
 
-TxPDO2: 状态字(0x6041)+实际速度(0x606C) 6Byte
+TxPDO2: 实际电流(0x6078)+实际速度(0x606C) 6Byte
 
 RxPDO1: 控制字(0x6040)+目标位置(0x607A) 6Byte
 
@@ -90,7 +90,7 @@ RxPDO3: 控制字(0x6040)+目标力矩(0x6071) 6Byte
    velocity：电机实际速度
    effort：电机实际电流
 
-此外订阅 sensor_msgs::msg::JointState 消息类型话题 /target_position 的数据，将目标角度下发到关节电机。
+此外订阅 sensor_msgs::msg::JointState 消息类型话题 /target_position_cmd 的数据，将目标下发到关节电机。
 
 
 ## Usage
@@ -201,7 +201,7 @@ todo
 
 Control motor torque by publishing to service /set_erob_effort :
 
-- Joint 6 Move with 1000mA
+- Joint 6 Move with 1000mN
 
 ```bash
 ros2 service call /set_erob_effort erob_master/srv/MoveMotor "{node_id: 6, target: 1000}"
@@ -270,9 +270,9 @@ ros2 topic echo /erob_status
 ros2 topic echo /erob_joint_state_real
 ```
 
-msg.position: 各关节实际位置
-msg.velocity: 各关节实际速度
-msg.effort:   各关节实际电流
+msg.position: 各关节实际位置(deg)
+msg.velocity: 各关节实际速度(deg/s)
+msg.effort:   各关节实际电流(mA)
 
 ## Topic List
 
