@@ -11,7 +11,7 @@ class JointEffortPublisher(Node):
         # 注意：use_sim_time 在节点初始化时已自动声明，不需要再声明
         
         # 声明全局参数（除了 use_sim_time）
-        self.declare_parameter('frequency', 1.0)
+        self.declare_parameter('frequency', 0.5)
         self.declare_parameter('publish_rate', 100.0)
         
         # 获取全局参数
@@ -25,9 +25,20 @@ class JointEffortPublisher(Node):
         ]
         
         # 声明每个关节的零点和幅值参数
-        for i in range(1, 8):
-            self.declare_parameter(f'joint{i}.offset', 0.0)
-            self.declare_parameter(f'joint{i}.amplitude', 300.0)
+        self.declare_parameter(f'joint{1}.offset', 0.0)
+        self.declare_parameter(f'joint{1}.amplitude', 300.0)
+        self.declare_parameter(f'joint{2}.offset', 0.0)
+        self.declare_parameter(f'joint{2}.amplitude', 300.0)
+        self.declare_parameter(f'joint{3}.offset', 0.0)
+        self.declare_parameter(f'joint{3}.amplitude', 300.0)
+        self.declare_parameter(f'joint{4}.offset', 0.0)
+        self.declare_parameter(f'joint{4}.amplitude', 300.0)
+        self.declare_parameter(f'joint{5}.offset', 0.0)
+        self.declare_parameter(f'joint{5}.amplitude', 300.0)
+        self.declare_parameter(f'joint{6}.offset', 0.0)
+        self.declare_parameter(f'joint{6}.amplitude', 3000.0)
+        self.declare_parameter(f'joint{7}.offset', 0.0)
+        self.declare_parameter(f'joint{7}.amplitude', 300.0)
         
         # 获取每个关节的零点和幅值
         self.offsets = []
@@ -101,7 +112,7 @@ class JointEffortPublisher(Node):
         msg = JointState()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.name = self.joint_names
-        
+        k = 0
         # 计算每个关节的effort值
         msg.effort = []
         for i in range(7):
@@ -110,6 +121,14 @@ class JointEffortPublisher(Node):
             effort_value = self.offsets[i] + self.amplitudes[i] * math.sin(
                 2 * math.pi * self.frequency * current_time + phase_shift
             )
+
+            # tmp = math.sin(2 * math.pi * self.frequency * current_time + phase_shift)
+            # if tmp > 0.5:
+            #     k = 1.0
+            # elif tmp <-0.5:
+            #     k = -1.0
+            # effort_value = self.offsets[i] + self.amplitudes[i] * k
+
             msg.effort.append(effort_value)
         
         # 发布消息

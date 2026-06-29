@@ -142,7 +142,19 @@ JointState:
       12.0
 ```
 
-- Velocity Control
+### 2. Velocity Control
+
+#### Service Control
+
+Control motor velocity by publishing to service /set_erob_velocity :
+
+- Joint 6 Move at 10 degrees/s
+
+```bash
+ros2 service call /set_erob_velocity erob_master/srv/MoveMotor "{node_id: 6, target: 10.0}"
+```
+
+#### Topic Control
 
 Control motor velocity by publishing sensor_msgs::msg::JointState messge to topic /target_velocity :
 
@@ -158,43 +170,6 @@ JointState:
       12.0
 ```
 
-- Torque Control
-
-Control motor effort by publishing sensor_msgs::msg::JointState messge to topic /target_effort :
-
-```bash
-JointState:
-   effort[]:
-      120.0
-      180.0
-      120.0
-      90.0
-      100.0
-      0.0
-      12.0
-```
-
-
-### 2. Velocity Control
-
-#### Service Control
-
-Control motor velocity by publishing to service /set_erob_velocity :
-
-- Joint 6 Move at 10 degrees/s
-
-```bash
-ros2 service call /set_erob_velocity erob_master/srv/MoveMotor "{node_id: 6, target: 10.0}"
-```
-
-#### Topic Control
-
-Control motor velocity by publishing to /target_velocity topic:
-
-- Set velocity to 10 degrees/second
-
-todo
-
 ### 3. Torque Control
 
 #### Service Control
@@ -209,9 +184,19 @@ ros2 service call /set_erob_effort erob_master/srv/MoveMotor "{node_id: 6, targe
 
 #### Topic Control
 
-Control motor torque by publishing to /target_torque topic:
+Control motor effort by publishing sensor_msgs::msg::JointState messge to topic /target_effort :
 
-todo
+```bash
+JointState:
+   effort[]:
+      120.0
+      180.0
+      120.0
+      90.0
+      100.0
+      0.0
+      12.0
+```
 
 ## Service Interfaces
 
@@ -237,26 +222,18 @@ It may take twice the command to reset motor successfully.
 
 ## Setting Motor Mode
 
-- Set to position mode
-
 ```bash
-ros2 service call /set_erob_mode erob_master/srv/ConfigureMotor "{node_id: 1, operation_mode: PPM}"
+ros2 service call /set_erob_mode erob_master/srv/ConfigureMotor "{node_id: 1, operation_mode: *OPERATION_MODE*}"
 ```
 
-- Set to velocity mode
-
-```bash
-ros2 service call /set_erob_mode erob_master/srv/ConfigureMotor "{node_id: 2, operation_mode: PVM}"
-```
-
-- Set to torque mode
-
-```bash
-ros2 service call /set_erob_mode erob_master/srv/ConfigureMotor "{node_id: 2, operation_mode: PTM}"
-```
-
-
-
+| Operation mode | $OPERATION_MODE |
+| -------------- | --------------- |
+| Position | PPM |
+| -------- | CSP |
+| Velocity | PVM |
+| -------- | CSV |
+| Torque | PTM |
+| ------ | CST |
 
 ## Monitor Motor Status（不可用）
 
@@ -280,6 +257,8 @@ msg.effort:   各关节实际电流(mA)
 | ---------- | ------------ | ----------- |
 | /target_position | sensor_msgs/msg/JointState | Set target position (deg) |
 | /target_velocity | sensor_msgs/msg/JointState | Set target velocity (deg/s) |
+| /target_torque | sensor_msgs/msg/JointState | Set target torque (mN) |
+| /target_current | sensor_msgs/msg/JointState | Set target current (mA) |
 | /erob_status | std_msgs/msg/String | Motor status information |
 | /erob_joint_state_real | sensor_msgs/msg/JointState | Current position(deg), velocity(deg/s), effort(mA) |
 
