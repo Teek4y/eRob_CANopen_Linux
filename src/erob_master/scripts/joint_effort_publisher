@@ -1,0 +1,130 @@
+#!/usr/bin/env python3
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import JointState
+import math
+
+class JointEffortPublisher(Node):
+    def __init__(self):
+        super().__init__('joint_effort_publisher')
+        
+        # 注意：use_sim_time 在节点初始化时已自动声明，不需要再声明
+        
+        # 声明全局参数（除了 use_sim_time）
+        self.declare_parameter('frequency', 1.0)
+        self.declare_parameter('publish_rate', 100.0)
+        
+        # 获取全局参数
+        self.frequency = self.get_parameter('frequency').value
+        self.publish_rate = self.get_parameter('publish_rate').value
+        
+        # 七个关节名称
+        self.joint_names = [
+            'joint1', 'joint2', 'joint3', 
+            'joint4', 'joint5', 'joint6', 'joint7'
+        ]
+        
+        # 声明每个关节的零点和幅值参数
+        for i in range(1, 8):
+            self.declare_parameter(f'joint{i}.offset', 0.0)
+            self.declare_parameter(f'joint{i}.amplitude', 300.0)
+        
+        # 获取每个关节的零点和幅值
+        self.offsets = []
+        self.amplitudes = []
+        for i in range(1, 8):
+            offset = self.get_parameter(f'joint{i}.offset').value
+            amplitude = self.get_parameter(f'joint{i}.amplitude').value
+            self.offsets.append(offset)
+            self.amplitudes.append(amplitude)
+        
+        # 创建发布器
+        self.publisher = self.create_publisher(
+            JointState, 
+            '/target_current', 
+            10
+        )
+        
+        # 设置定时器
+        timer_period = 1.0 / self.publish_rate
+        self.timer = self.create_timer(timer_period, self.timer_callback)
+        
+        # 初始化时间变量（使用ROS2时间）
+        self.start_time = self.get_clock().now().nanoseconds / 1e9
+        
+        # 添加参数变更回调（可选）
+        self.add_on_set_parameters_callback(self.parameter_callback)
+        
+        # 打印配置信息
+        self.log_configuration()
+
+    def parameter_callback(self, params):
+        """参数变更回调函数"""
+        for param in params:
+            if param.name.startswith('joint') and ('.offset' in param.name or '.amplitude' in param.name):
+                # 更新对应关节的配置
+                joint_idx = int(param.name.split('.')[0][5:]) - 1  # joint1 -> 0
+                if '.offset' in param.name:
+                    self.offsets[joint_idx] = param.value
+                    self.get_logger().info(f'Updated {param.name} to {param.value}')
+                elif '.amplitude' in param.name:
+                    self.amplitudes[joint_idx] = param.value
+                    self.get_logger().info(f'Updated {param.name} to {param.value}')
+            elif param.name == 'frequency':
+                self.frequency = param.value
+                self.get_logger().info(f'Updated frequency to {param.value}')
+            elif param.name == 'publish_rate':
+                # 发布速率变化需要重新创建定时器
+                self.publish_rate = param.value
+                timer_period = 1.0 / self.publish_rate
+                self.timer.cancel()
+                self.timer = self.create_timer(timer_period, self.timer_callback)
+                self.get_logger().info(f'Updated publish_rate to {param.value}')
+        return rclpy.node.Node.SetParametersResult(successful=True)
+
+    def log_configuration(self):
+        """打印当前配置信息"""
+        self.get_logger().info('=== Joint Effort Publisher Configuration ===')
+        self.get_logger().info(f'Frequency: {self.frequency} Hz')
+        self.get_logger().info(f'Publish Rate: {self.publish_rate} Hz')
+        self.get_logger().info('Joint Configurations (Offset, Amplitude):')
+        for i, (name, offset, amp) in enumerate(zip(
+            self.joint_names, self.offsets, self.amplitudes), 1):
+            self.get_logger().info(f'  {name}: offset={offset:.3f}A, amplitude={amp:.3f}A')
+        self.get_logger().info('===========================================')
+
+    def timer_callback(self):
+        # 使用ROS2时间计算
+        current_time = self.get_clock().now().nanoseconds / 1e9 - self.start_time
+        
+        # 生成消息
+        msg = JointState()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.name = self.joint_names
+        
+        # 计算每个关节的effort值
+        msg.effort = []
+        for i in range(7):
+            # 每个关节独立计算：offset + amplitude * sin(2πft + 相位差)
+            phase_shift = i * (math.pi / 3)  # 60度相位差
+            effort_value = self.offsets[i] + self.amplitudes[i] * math.sin(
+                2 * math.pi * self.frequency * current_time + phase_shift
+            )
+            msg.effort.append(effort_value)
+        
+        # 发布消息
+        self.publisher.publish(msg)
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = JointEffortPublisher()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()

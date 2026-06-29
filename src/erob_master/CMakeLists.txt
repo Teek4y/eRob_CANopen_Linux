@@ -71,6 +71,7 @@ endif()
 
 
 install(PROGRAMS scripts/joint_state_bridge DESTINATION lib/${PROJECT_NAME})
+install(PROGRAMS scripts/joint_effort_publisher DESTINATION lib/${PROJECT_NAME})
 # Note: the `scripts/joint_state_bridge` is provided via the package's
 # `setup.py` entry points. Installing it again with `install(PROGRAMS ...)`
 # would create duplicate CMake targets, so we don't install it here.

@@ -234,6 +234,8 @@ public:
             "target_velocity", 1, std::bind(&CANopenROS2::velocity_callback, this, std::placeholders::_1));
         effort_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
             "target_effort", 1, std::bind(&CANopenROS2::effort_callback, this, std::placeholders::_1));
+        current_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
+            "target_current", 1, std::bind(&CANopenROS2::current_callback, this, std::placeholders::_1));
         
         // 创建服务
         start_service_ = this->create_service<erob_master::srv::MotorID>(
@@ -250,6 +252,8 @@ public:
             "set_erob_velocity", std::bind(&CANopenROS2::handle_set_velocity, this, std::placeholders::_1, std::placeholders::_2));
         set_effort_service_ = this->create_service<erob_master::srv::MoveMotor>(
             "set_erob_effort", std::bind(&CANopenROS2::handle_set_effort, this, std::placeholders::_1, std::placeholders::_2));
+        set_current_service_ = this->create_service<erob_master::srv::MoveMotor>(
+            "set_erob_current", std::bind(&CANopenROS2::handle_set_current, this, std::placeholders::_1, std::placeholders::_2));
     }
     
     ~CANopenROS2()
@@ -1070,7 +1074,32 @@ private:
             return;
         }
         RCLCPP_INFO(this->get_logger(), "电流命令已通过PDO发送");
+    }
 
+    void set_current_pdo(int node_id, float current)
+    {   
+        // actual_torque = torque_constant * vel_ratio * efficiency * actual_current
+        RCLCPP_INFO(this->get_logger(), "通过PDO设置电流: %.2fmA", current);
+        
+        // int16_t hex = torque_to_hex(torque);
+        int16_t hex = static_cast<int16_t>(current * 1000.0 / static_cast<float>(motor_config_[node_id-1].rated_current));
+        RCLCPP_INFO(this->get_logger(), "目标电流脉冲值: %d", hex);
+        
+        // 使用PDO发送目标电流
+        struct can_frame frame;
+        frame.can_id = COB_RPDO3 + node_id;
+        frame.can_dlc = 4;  // 控制字(2字节) + 目标电流(2字节)
+        frame.data[0] = CONTROL_ENABLE_OPERATION & 0xFF;  // 控制字低字节
+        frame.data[1] = (CONTROL_ENABLE_OPERATION >> 8) & 0xFF;  // 控制字高字节
+        frame.data[2] = hex & 0xFF;  // 目标电流低字节
+        frame.data[3] = (hex >> 8) & 0xFF;
+        
+        if (write(can_socket_, &frame, sizeof(struct can_frame)) != sizeof(struct can_frame))
+        {
+            RCLCPP_ERROR(this->get_logger(), "发送目标电流失败");
+            return;
+        }
+        RCLCPP_INFO(this->get_logger(), "电流命令已通过PDO发送");
     }
 
     void send_sync_frame()
@@ -1329,7 +1358,9 @@ private:
         // 发布位置
         joint_state_real.header.stamp = this->now();
         joint_state_real.header.frame_id = "Joint State Real Value Feedback";
+        // joint_state_real.name = {'Joint1','Joint2','Joint3','Joint4', 'Joint5', 'Joint6', 'Joint7'};
         for (size_t i = 0; i < NUM_MOTORS; ++i) {
+            joint_state_real.name.push_back("Joint" + std::to_string(i + 1));
             joint_state_real.position.push_back(motor_config_[i].actual_position);
             joint_state_real.velocity.push_back(motor_config_[i].actual_velocity);
             // joint_state_real.effort.push_back(pulse_to_effort(motor_config_[i].actual_effort));
@@ -1406,7 +1437,7 @@ private:
         
     }
 
-    // 回调函数：处理目标电流
+    // 回调函数：处理目标力矩
     void effort_callback(const sensor_msgs::msg::JointState::SharedPtr msg)
     {   
         int node_id = 1;
@@ -1418,7 +1449,20 @@ private:
             set_torque_pdo(node_id,i);
             node_id++;
         }
-        
+    }
+
+    // 回调函数：处理目标电流
+    void current_callback(const sensor_msgs::msg::JointState::SharedPtr msg)
+    {   
+        int node_id = 1;
+        for(auto i : msg->effort){
+            // float velocity = msg->velocity[node_id];
+            RCLCPP_INFO(this->get_logger(), "收到目标电流: %.2f°/s", i);
+            
+            // 尝试使用PDO设置电流
+            set_current_pdo(node_id,i);
+            node_id++;
+        }
     }
     
     // 服务回调函数：启动
@@ -1651,7 +1695,7 @@ private:
         }
     }
 
-    // 服务回调函数：设置电流
+    // 服务回调函数：设置力矩
     void handle_set_effort(const std::shared_ptr<erob_master::srv::MoveMotor::Request> request,
                     std::shared_ptr<erob_master::srv::MoveMotor::Response> response)
     {
@@ -1663,6 +1707,34 @@ private:
             if(motor_config_[node_id-1].operation_mode == MODE_PROFILE_TORQUE || 
                 motor_config_[node_id-1].operation_mode == MODE_CYCLIC_TORQUE){
                 set_torque_pdo(node_id, position);
+                response->success = true;
+                response->message = "电机电流已设置";
+            }
+            else{
+                response->success = false;
+                response->message = "电机不处于正确的运动模式下";
+            }
+
+        }
+        catch (const std::exception& e)
+        {
+            response->success = false;
+            response->message = "停止失败: " + std::string(e.what());
+        }
+    }
+
+    // 服务回调函数：设置电流
+    void handle_set_current(const std::shared_ptr<erob_master::srv::MoveMotor::Request> request,
+                    std::shared_ptr<erob_master::srv::MoveMotor::Response> response)
+    {
+        RCLCPP_INFO(this->get_logger(), "收到停止请求");
+        int node_id = request->node_id;
+        float position = request->target;
+        try
+        {
+            if(motor_config_[node_id-1].operation_mode == MODE_PROFILE_TORQUE || 
+                motor_config_[node_id-1].operation_mode == MODE_CYCLIC_TORQUE){
+                set_current_pdo(node_id, position);
                 response->success = true;
                 response->message = "电机电流已设置";
             }
@@ -1816,6 +1888,7 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr position_sub_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr velocity_sub_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr effort_sub_;
+    rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr current_sub_;
 
     rclcpp::Service<erob_master::srv::MotorID>::SharedPtr start_service_;
     rclcpp::Service<erob_master::srv::MotorID>::SharedPtr stop_service_;
@@ -1824,6 +1897,7 @@ private:
     rclcpp::Service<erob_master::srv::MoveMotor>::SharedPtr set_position_service_;
     rclcpp::Service<erob_master::srv::MoveMotor>::SharedPtr set_velocity_service_;
     rclcpp::Service<erob_master::srv::MoveMotor>::SharedPtr set_effort_service_;
+    rclcpp::Service<erob_master::srv::MoveMotor>::SharedPtr set_current_service_;
 };
 
 int main(int argc, char * argv[])
